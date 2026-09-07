@@ -7,7 +7,6 @@ data/raw/*
 data/processed/*
 
 results/logs/*
-results/figures/*
 
 checkpoints/
 *.pt
