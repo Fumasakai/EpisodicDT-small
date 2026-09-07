@@ -1,0 +1,36 @@
+data:
+  input_dim: 1
+  sequence_length: 20
+  train_path: data/processed/sutd_5g/train
+  evaluation_path: data/processed/sutd_5g/evaluation
+
+model:
+  hidden_dim: 128
+  latent_dim: 32
+  transformer_heads: 4
+  transformer_layers: 3
+  dropout: 0.05
+
+diffusion:
+  future_length: 10
+  timesteps: 100
+
+training:
+  batch_size: 64
+  epochs: 150
+  learning_rate: 0.0001
+  seed: 42
+  checkpoint_dir: results/checkpoints
+  validation_fraction: 0.2
+  min_epochs: 30
+  early_stopping_patience: 15
+  early_stopping_min_delta: 0.0001
+
+evaluation:
+  danger_threshold: -100.0
+  figure_dir: results/figures
+  generated_csv: results/generated/rsrp_forecasts_all_episodes.csv
+  actual_csv: results/generated/rsrp_actual_all_episodes.csv
+  boxplot_path: results/figures/forecast_boxplot.png
+  batch_size: 64
+  small_multiples_episodes: 6
