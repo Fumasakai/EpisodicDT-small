@@ -32,12 +32,13 @@ class EpisodeEncoder(nn.Module):
         positional_encoding[:, 1::2] = torch.cos(angles)
 
         tokens = self.input_projection(history) + positional_encoding.unsqueeze(0)
-        encoded_history = self.transformer(tokens)
+        encoded_history = self.transformer(tokens)# The final token summarizes the past up to the forecast start.
         # The final token summarizes the past up to the forecast start.
         return self.projection(encoded_history[:, -1, :])
 
 
 class NoisePredictor(nn.Module):
+    """Predict diffusion velocity v (legacy class name retained)."""
     def __init__(self, sequence_length, latent_dim, hidden_dim):
         super().__init__()
         self.sequence_length = sequence_length
@@ -61,37 +62,60 @@ class NoisePredictor(nn.Module):
 
 
 class EpisodicDiffusion(nn.Module):
+    # Old epsilon/absolute-RSRP checkpoints have incompatible semantics.
+    FORMAT = "zero_snr_v_residual_v1"
+
     def __init__(
         self, input_dim, future_length, hidden_dim, latent_dim, timesteps,
         transformer_heads=4, transformer_layers=2, dropout=0.1,
     ):
         super().__init__()
+        if timesteps < 2 or input_dim != 1:
+            raise ValueError("Residual diffusion requires timesteps >= 2 and input_dim = 1.")
         self.encoder = EpisodeEncoder(
             input_dim, hidden_dim, latent_dim, transformer_heads, transformer_layers, dropout
         )
         self.noise_predictor = NoisePredictor(future_length, latent_dim, hidden_dim)
         self.timesteps = timesteps
-        betas = torch.linspace(1e-4, 0.02, timesteps)
-        alphas = 1.0 - betas
-        self.register_buffer("betas", betas)
-        self.register_buffer("alphas", alphas)
-        self.register_buffer("alpha_bars", torch.cumprod(alphas, dim=0))
+        # Rescale sqrt(alpha_bar) so the terminal distribution is exactly N(0,I).
+        original = torch.cumprod(1 - torch.linspace(1e-4, 0.02, timesteps, dtype=torch.float64), 0).sqrt()
+        signal = (original - original[-1]) * original[0] / (original[0] - original[-1])
+        alpha_bars = signal.square()
+        previous = torch.cat([torch.ones(1, dtype=torch.float64), alpha_bars[:-1]])
+        alphas = alpha_bars / previous
+        betas = 1 - alphas
+        self.register_buffer("posterior_variance", (betas * (1 - previous) / (1 - alpha_bars)).float())
+        self.register_buffer("posterior_x0_coef", (betas * previous.sqrt() / (1 - alpha_bars)).float())
+        self.register_buffer("posterior_xt_coef", ((1 - previous) * alphas.sqrt() / (1 - alpha_bars)).float())
+        self.register_buffer("betas", betas.float())
+        self.register_buffer("alphas", alphas.float())
+        self.register_buffer("alpha_bars", alpha_bars.float())
 
     def loss(self, history, future):
+        # Both inputs are standardized using the same training statistics.
+        # This is (future_dBm - last_history_dBm) / training_std.
+        future = future - history[:, -1:, :]
         batch_size = future.shape[0]
         steps = torch.randint(0, self.timesteps, (batch_size,), device=future.device)
         alpha_bar = self.alpha_bars[steps].view(batch_size, 1, 1)
         noise = torch.randn_like(future)
         noisy_future = alpha_bar.sqrt() * future + (1.0 - alpha_bar).sqrt() * noise
         context = self.encoder(history)
-        predicted_noise = self.noise_predictor(
+        predicted_velocity = self.noise_predictor(
             noisy_future, steps / max(self.timesteps - 1, 1), context
         )
-        return nn.functional.mse_loss(predicted_noise, noise)
+        target_velocity = alpha_bar.sqrt() * noise - (1 - alpha_bar).sqrt() * future
+        return nn.functional.mse_loss(predicted_velocity, target_velocity)
 
     @torch.no_grad()
     def sample(self, history, num_samples=1):
-        """Generate normalized future trajectories using DDPM reverse diffusion."""
+        """Generate residuals, then return absolute standardized RSRP [B,S,F,1].
+
+        Use eval() when sampling to disable dropout. v prediction and the x0
+        posterior form avoid division by alpha=0 at the terminal step.
+        """
+        if num_samples < 1:
+            raise ValueError("num_samples must be positive.")
         batch_size = history.shape[0]
         context = self.encoder(history).repeat_interleave(num_samples, dim=0)
         x = torch.randn(
@@ -102,10 +126,10 @@ class EpisodicDiffusion(nn.Module):
         )
         for step in reversed(range(self.timesteps)):
             t = torch.full((x.shape[0],), step / max(self.timesteps - 1, 1), device=x.device)
-            predicted_noise = self.noise_predictor(x, t, context)
-            alpha = self.alphas[step]
+            velocity = self.noise_predictor(x, t, context)
             alpha_bar = self.alpha_bars[step]
-            x = (x - (1 - alpha) / (1 - alpha_bar).sqrt() * predicted_noise) / alpha.sqrt()
+            residual = alpha_bar.sqrt() * x - (1 - alpha_bar).sqrt() * velocity
+            x = self.posterior_x0_coef[step] * residual + self.posterior_xt_coef[step] * x
             if step > 0:
-                x = x + self.betas[step].sqrt() * torch.randn_like(x)
-        return x.view(batch_size, num_samples, -1, 1)
+                x = x + self.posterior_variance[step].sqrt() * torch.randn_like(x)
+        return x.view(batch_size, num_samples, -1, 1) + history[:, None, -1:, :]

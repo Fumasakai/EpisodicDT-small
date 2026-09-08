@@ -34,6 +34,11 @@ python -m src.evaluation.evaluate --config configs/config.yaml
 `results/generated/rsrp_actual_all_episodes.csv` に保存されます。
 評価用の全エピソード・全future stepを集約した実測futureと生成futureの分布を比較する箱ひげ図は
 `results/figures/forecast_boxplot.png` に保存されます。
+ステップごとの比較は `results/figures/forecast_boxplot_by_step.png` に保存されます。
+各future stepについて、全評価エピソードの実測値（緑）と、全エピソード・全生成サンプルの
+生成値（青）を並べた箱ひげ図です。生成値を平均化せずに集計します。箱は25--75%点、
+中央線は中央値、ひげは1.5 IQR以内の最遠の観測値を表し、外れ値の点は非表示です。
+横軸0は最初のfuture観測点です。箱の組数は `future_length` に従います。
 
 変換対象は `data/raw` にある次の4ファイルです。
 
@@ -56,6 +61,49 @@ python -m src.evaluation.evaluate --config configs/config.yaml
 - `src/evaluation`: サンプリング、危険判定、可視化
 
 設定値は `configs/config.yaml` で変更できます。CPUでも動くように、初期値は
-小さめにしています。学習では各シナリオの学習用データ後半20%を検証用に取り分け、
-検証拡散MSEが改善しない状態が15エポック続くとEarly Stoppingで終了します。`epochs` は
-最大エポック数で、保存されるモデルは検証MSEが最小だったエポックのものです。
+小さめにしています。
+
+## 変化量生成と検証によるモデル選択
+
+モデルは `(future - historyの最終値) / 学習データの標準偏差` を生成します。
+`sample()` はhistory最終値を加算して、絶対RSRPの標準化値を返すため、評価CSVの値は
+従来どおりdBmです。history自体は絶対RSRPを標準化してエンコーダに渡します。
+
+ノイズスケジュールは終端の信号対雑音比（SNR）がゼロになるよう再スケーリングします。
+学習対象はノイズepsilonから `v = sqrt(alpha_bar) * epsilon - sqrt(1-alpha_bar) * residual`
+へ変更しました。逆拡散ではvから残差を推定し、DDPMの事後平均・事後分散を使います。
+これにより、純粋なガウスノイズからの生成開始と学習条件が一致し、終端alpha=0での
+ゼロ除算も避けられます。表示される `train_v_mse` は旧モデルのノイズMSEとは異なる指標です。
+
+学習用各シナリオの後半20%を検証に使い、境界をまたぐウィンドウは除外します。
+標準化統計量も、検証区間を除いた学習用の前方区間だけで計算します。
+最終評価データはEarly Stoppingには使いません。
+
+各エポックで検証用historyから32系列を生成し、全エピソード・全future stepの平均CRPS
+（小さいほど良い、単位dBm）でモデルを選択します。CRPSは実測との差と生成分布の広がりを
+考慮する確率予測の指標です。検証ノイズは毎回固定し、学習側の乱数状態には影響させません。
+
+- `validation_samples: 32`：各検証エピソードの生成数
+- `validation_seed: 12345`：検証ノイズのシード
+- `early_stopping_min_delta: 0.001`：改善とみなすCRPSの差（dBm）
+- `early_stopping_patience: 15`：有意な改善がないエポックの許容数
+- `min_epochs: 30`：最低学習回数。`epochs: 150` は最大回数
+
+CRPSが最小になった時点のモデルを毎回保存します（min_delta未満の改善も保存対象）。
+`training_metrics.json` に各エポックのv-MSE、CRPS、MAE、90%区間被覆率と、ステップ別の
+CRPS・MAE・平均誤差（生成平均−実測）・実測/生成標準偏差・区間被覆率・区間幅を記録します。
+50%/90%帯は生成サンプルの経験的分位点であり、実測の被覆率を保証するものではありません。
+
+新しいチェックポイントとログは `results/checkpoints/residual_v1/` に保存します。
+旧チェックポイントは新方式と互換性がないため再学習が必要です。
+評価時は保存済み設定からモデル構造・history長・future長を復元します。
+現在の実装ではノイズスケジュール・v予測・残差生成は一組の固定仕様で、
+`model_format: zero_snr_v_residual_v1` によって識別します。
+過去に作成したLaTeX資料のepsilon予測や行番号は旧実装の説明です。
+現行方式の数式・アルゴリズム・行番号対応は
+[日本語LaTeX資料](docs/episodicdt_residual_v1.tex) にまとめています。
+LuaLaTeXで次のコマンドを2回実行すると目次・参照を含むPDFを生成できます。
+
+~~~bash
+lualatex -interaction=nonstopmode -halt-on-error -output-directory=docs docs/episodicdt_residual_v1.tex
+~~~

@@ -1,6 +1,6 @@
 data:
   input_dim: 1
-  sequence_length: 20
+  sequence_length: 40
   train_path: data/processed/sutd_5g/train
   evaluation_path: data/processed/sutd_5g/evaluation
 
@@ -20,11 +20,13 @@ training:
   epochs: 150
   learning_rate: 0.0001
   seed: 42
-  checkpoint_dir: results/checkpoints
+  checkpoint_dir: results/checkpoints/residual_v1
+  validation_samples: 32
+  validation_seed: 12345
   validation_fraction: 0.2
   min_epochs: 30
   early_stopping_patience: 15
-  early_stopping_min_delta: 0.0001
+  early_stopping_min_delta: 0.001  # CRPS improvement in dBm
 
 evaluation:
   danger_threshold: -100.0
@@ -32,5 +34,6 @@ evaluation:
   generated_csv: results/generated/rsrp_forecasts_all_episodes.csv
   actual_csv: results/generated/rsrp_actual_all_episodes.csv
   boxplot_path: results/figures/forecast_boxplot.png
+  step_boxplot_path: results/figures/forecast_boxplot_by_step.png
   batch_size: 64
   small_multiples_episodes: 6

@@ -51,6 +51,42 @@ def save_boxplot(generated, actual, output_path):
     plt.close(figure)
 
 
+def save_step_boxplot(generated, actual, output_path):
+    """Pool episodes (and generated samples) separately at each future step."""
+    future_length = actual.shape[1]
+    steps = np.arange(future_length)
+    figure, axis = plt.subplots(figsize=(max(10, future_length * 0.75), 6))
+    for values, offset, color in (
+        ([actual[:, step] for step in steps], -0.18, "tab:green"),
+        ([generated[:, :, step].reshape(-1) for step in steps], 0.18, "tab:blue"),
+    ):
+        boxes = axis.boxplot(
+            values, positions=steps + offset, widths=0.3,
+            patch_artist=True, manage_ticks=False, showfliers=False, whis=1.5,
+            medianprops={"color": "black", "linewidth": 1.2},
+        )
+        for box in boxes["boxes"]:
+            box.set_facecolor(color)
+            box.set_alpha(0.65)
+    axis.set_xticks(steps)
+    axis.set_xlabel("Forecast step (0 = first future observation)")
+    axis.set_ylabel("RSRP [dBm]")
+    axis.set_title("Actual vs generated RSRP distribution at each future step")
+    axis.legend(handles=[
+        Patch(facecolor="tab:green", alpha=0.65,
+              label=f"Actual: {actual.shape[0]:,} values / step"),
+        Patch(facecolor="tab:blue", alpha=0.65,
+              label=f"Generated: {generated.shape[0] * generated.shape[1]:,} values / step"),
+    ])
+    axis.grid(axis="y", alpha=0.3)
+    figure.text(0.5, 0.01,
+                "Boxes: 25-75%; line: median; whiskers: within 1.5 IQR; outliers hidden",
+                ha="center", fontsize=9)
+    figure.tight_layout(rect=(0, 0.04, 1, 1))
+    figure.savefig(output_path, dpi=150)
+    plt.close(figure)
+
+
 def save_small_multiples(dataset, generated, actual, threshold, output_path, episode_count):
     """Plot representative held-out trajectories with generated uncertainty bands."""
     selected = np.linspace(0, len(dataset) - 1, num=episode_count, dtype=int)
@@ -99,8 +135,12 @@ def main():
     config = yaml.safe_load(Path(args.config).read_text())
     training_cfg = config["training"]
     checkpoint = torch.load(Path(training_cfg["checkpoint_dir"]) / "episodicdt.pt", map_location="cpu", weights_only=False)
-    data_cfg, model_cfg, diffusion_cfg = config["data"], config["model"], config["diffusion"]
-    evaluation_path = Path(data_cfg["evaluation_path"])
+    if checkpoint.get("model_format") != EpisodicDiffusion.FORMAT:
+        raise ValueError("This checkpoint uses the old model format. Retrain with src.train.train first.")
+    # Architecture and history length must match the trained checkpoint.
+    saved_config = checkpoint["config"]
+    data_cfg, model_cfg, diffusion_cfg = saved_config["data"], saved_config["model"], saved_config["diffusion"]
+    evaluation_path = Path(config["data"]["evaluation_path"])
     evaluation_paths = sorted(evaluation_path.glob("*.csv"))
     print(f"held-out evaluation scenario files: {len(evaluation_paths)}")
     dataset = RSRPWindowDataset(
@@ -156,6 +196,13 @@ def main():
     boxplot_path.parent.mkdir(parents=True, exist_ok=True)
     save_boxplot(all_generated, all_actual, boxplot_path)
     print(f"saved boxplot: {boxplot_path}")
+
+    step_boxplot_path = Path(config["evaluation"].get(
+        "step_boxplot_path", output_dir / "forecast_boxplot_by_step.png"
+    ))
+    step_boxplot_path.parent.mkdir(parents=True, exist_ok=True)
+    save_step_boxplot(all_generated, all_actual, step_boxplot_path)
+    print(f"saved per-step boxplot: {step_boxplot_path}")
 
     path = output_dir / "forecast.png"
     save_small_multiples(
