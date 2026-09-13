@@ -16,12 +16,14 @@ class RSRPWindowDataset(Dataset):
         else:
             paths = [Path(path) for path in csv_path]
         if not paths:
-            raise FileNotFoundError(f"No CSV files found in: {source}")
+            raise FileNotFoundError(f"No CSV files found in: {csv_path}")
+        self.paths = []
         self.traces = []
         for path in paths:
             values = pd.read_csv(path)["rsrp"].to_numpy(dtype=np.float32)
             if len(values) >= history_length + future_length:
                 self.traces.append(values)
+                self.paths.append(path)
         if not self.traces:
             raise ValueError("No RSRP trace is long enough for the requested windows.")
 
@@ -48,3 +50,19 @@ class RSRPWindowDataset(Dataset):
         history = (values[start:split] - self.mean) / self.std
         future = (values[split:end] - self.mean) / self.std
         return torch.from_numpy(history[:, None]), torch.from_numpy(future[:, None])
+
+
+class RSRPEpisodeDataset(RSRPWindowDataset):
+    """Whole episodes, normalized with global training-only statistics."""
+
+    def __init__(self, csv_path, episode_length, mean=None, std=None):
+        if episode_length < 1:
+            raise ValueError("episode_length must be positive.")
+        super().__init__(csv_path, episode_length, 0, mean, std)
+        self.episode_length = episode_length
+        if not all(np.isfinite(values).all() for values in self.traces):
+            raise ValueError("RSRP traces must contain finite values; handle missing data first.")
+
+    def __getitem__(self, index):
+        episode, _ = super().__getitem__(index)
+        return episode

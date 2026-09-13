@@ -1,6 +1,6 @@
 data:
   input_dim: 1
-  sequence_length: 40
+  episode_length: 40
   train_path: data/processed/sutd_5g/train
   evaluation_path: data/processed/sutd_5g/evaluation
 
@@ -12,28 +12,27 @@ model:
   dropout: 0.05
 
 diffusion:
-  future_length: 10
   timesteps: 100
 
 training:
+  kl_beta: 0.001
   batch_size: 64
   epochs: 150
   learning_rate: 0.0001
   seed: 42
-  checkpoint_dir: results/checkpoints/residual_v1
+  checkpoint_dir: results/checkpoints/latent_episode_v1
   validation_samples: 32
   validation_seed: 12345
   validation_fraction: 0.2
   min_epochs: 30
   early_stopping_patience: 15
-  early_stopping_min_delta: 0.001  # CRPS improvement in dBm
+  early_stopping_min_delta: 0.001  # total validation loss improvement
 
 evaluation:
-  danger_threshold: -100.0
-  figure_dir: results/figures
-  generated_csv: results/generated/rsrp_forecasts_all_episodes.csv
-  actual_csv: results/generated/rsrp_actual_all_episodes.csv
-  boxplot_path: results/figures/forecast_boxplot.png
-  step_boxplot_path: results/figures/forecast_boxplot_by_step.png
+  figure_dir: results/figures/latent_episode_v1
+  generated_csv: results/generated/latent_generated_episodes.csv
+  actual_csv: results/generated/latent_source_episodes.csv
+  boxplot_path: results/figures/latent_episode_v1/episode_boxplot.png
+  step_boxplot_path: results/figures/latent_episode_v1/episode_boxplot_by_step.png
   batch_size: 64
   small_multiples_episodes: 6

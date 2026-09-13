@@ -65,3 +65,36 @@ def validate(model, loader, device, mean, std, num_samples=32, seed=12345):
             return metrics
     finally:
         model.train(was_training)
+
+
+@torch.no_grad()
+def validate_episodes(model, loader, device, mean, std, beta, num_samples=32, seed=12345):
+    """Conditional reconstruction diagnostics, NOT independent future forecasts."""
+    was_training = model.training
+    devices = list(range(torch.cuda.device_count())) if torch.cuda.is_available() else []
+    try:
+        model.eval()
+        with torch.random.fork_rng(devices=devices):
+            torch.manual_seed(seed)
+            totals = dict(loss=0.0, diffusion_mse=0.0, kl=0.0)
+            count = 0
+            for episode in loader:
+                episode = episode.to(device)
+                terms = model.loss_terms(episode, beta)
+                for name in totals:
+                    totals[name] += terms[name].item() * len(episode)
+                count += len(episode)
+            torch.manual_seed(seed + 1)
+            generated, observed = [], []
+            for episode in loader:
+                z = model.encode(episode.to(device)).sample()
+                generated.append(model.generate(z, num_samples)[..., 0].cpu())
+                observed.append(episode[..., 0])
+            metrics = forecast_metrics(torch.cat(generated) * std + mean,
+                                       torch.cat(observed) * std + mean)
+            # Explicit names prevent reconstruction scores being mistaken for forecasts.
+            result = {"reconstruction_" + k: v for k, v in metrics.items()}
+            result.update({name: value / count for name, value in totals.items()})
+            return result
+    finally:
+        model.train(was_training)

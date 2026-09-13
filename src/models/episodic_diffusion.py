@@ -133,3 +133,94 @@ class EpisodicDiffusion(nn.Module):
             if step > 0:
                 x = x + self.posterior_variance[step].sqrt() * torch.randn_like(x)
         return x.view(batch_size, num_samples, -1, 1) + history[:, None, -1:, :]
+
+
+class LatentEpisodeDiffusion(EpisodicDiffusion):
+    """Variational episode encoder and absolute, full-episode v diffusion.
+
+    The parent supplies the zero-terminal-SNR diffusion buffers and denoiser.
+    Its history-conditioned loss/sampler are both overridden.
+    """
+
+    FORMAT = "latent_episode_v1"
+
+    def __init__(self, input_dim, episode_length, hidden_dim, latent_dim, timesteps,
+                 transformer_heads=4, transformer_layers=2, dropout=0.1):
+        if episode_length < 1 or latent_dim < 1 or hidden_dim % 2:
+            raise ValueError("Positive episode/latent lengths and even hidden_dim required.")
+        super().__init__(input_dim, episode_length, hidden_dim, latent_dim, timesteps,
+                         transformer_heads, transformer_layers, dropout)
+        self.episode_length = episode_length
+        self.latent_dim = latent_dim
+        self.posterior_head = nn.Linear(latent_dim, 2 * latent_dim)
+
+    def encode(self, episode):
+        """Return a diagonal Normal; rsample() propagates gradients to the encoder."""
+        if episode.ndim != 3 or episode.shape[1:] != (self.episode_length, 1):
+            raise ValueError("Expected full normalized episode [B, episode_length, 1].")
+        mu, logvar = self.posterior_head(self.encoder(episode)).chunk(2, dim=-1)
+        # Numerical guard; bounds are part of this checkpoint format.
+        logvar = logvar.clamp(-12, 8)
+        return torch.distributions.Normal(mu, (0.5 * logvar).exp())
+
+    def loss_terms(self, episode, beta=0.001, target=None):
+        """Mean v MSE + beta * KL (sum over latent dimensions, mean over batch).
+
+        Optional target must share the source's environment conditions; ordinary
+        unpaired logs use the source episode itself as the target.
+        """
+        if not torch.isfinite(torch.tensor(beta)) or beta < 0:
+            raise ValueError("beta must be finite and nonnegative.")
+        posterior = self.encode(episode)
+        z = posterior.rsample()
+        clean = episode if target is None else target
+        if clean.shape != episode.shape:
+            raise ValueError("Paired target must have the source episode shape.")
+        steps = torch.randint(0, self.timesteps, (len(clean),), device=clean.device)
+        alpha = self.alpha_bars[steps].view(-1, 1, 1)
+        noise = torch.randn_like(clean)
+        noisy = alpha.sqrt() * clean + (1 - alpha).sqrt() * noise
+        predicted = self.noise_predictor(noisy, steps / (self.timesteps - 1), z)
+        velocity = alpha.sqrt() * noise - (1 - alpha).sqrt() * clean
+        diffusion = nn.functional.mse_loss(predicted, velocity)
+        kl = 0.5 * (posterior.loc.square() + posterior.scale.square()
+                    - 2 * posterior.scale.log() - 1).sum(dim=-1).mean()
+        return {"loss": diffusion + beta * kl, "diffusion_mse": diffusion, "kl": kl}
+
+    def loss(self, episode, beta=0.001, target=None):
+        return self.loss_terms(episode, beta, target)["loss"]
+
+    @torch.no_grad()
+    def generate(self, z, num_samples=1):
+        """Only z + diffusion noise; returns standardized episodes [B,S,L,1].
+
+        A fixed z is shared by its S samples. Use eval() for generation.
+        """
+        if z.ndim != 2 or z.shape[1] != self.latent_dim or not torch.isfinite(z).all():
+            raise ValueError("Expected finite latent tensor [B, latent_dim].")
+        if not isinstance(num_samples, int) or num_samples < 1:
+            raise ValueError("num_samples must be a positive integer.")
+        context = z.repeat_interleave(num_samples, dim=0)
+        x = torch.randn(len(context), self.episode_length, 1, device=z.device, dtype=z.dtype)
+        for step in reversed(range(self.timesteps)):
+            t = torch.full((len(x),), step / (self.timesteps - 1), device=x.device)
+            velocity = self.noise_predictor(x, t, context)
+            alpha = self.alpha_bars[step]
+            clean = alpha.sqrt() * x - (1 - alpha).sqrt() * velocity
+            x = self.posterior_x0_coef[step] * clean + self.posterior_xt_coef[step] * x
+            if step > 0:
+                x = x + self.posterior_variance[step].sqrt() * torch.randn_like(x)
+        return x.view(len(z), num_samples, self.episode_length, 1)
+
+    def sample(self, z, num_samples=1):
+        """Alias accepting latent vectors, never history."""
+        return self.generate(z, num_samples)
+
+
+def build_latent_model(config):
+    data, model = config["data"], config["model"]
+    return LatentEpisodeDiffusion(
+        data["input_dim"], data["episode_length"], model["hidden_dim"],
+        model["latent_dim"], config["diffusion"]["timesteps"],
+        model["transformer_heads"], model["transformer_layers"], model["dropout"],
+    )

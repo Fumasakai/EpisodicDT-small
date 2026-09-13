@@ -10,9 +10,9 @@ import yaml
 from torch.utils.data import DataLoader, Subset
 from tqdm import tqdm
 
-from src.data.dataset import RSRPWindowDataset
-from src.models.episodic_diffusion import EpisodicDiffusion
-from src.train.validation import validate
+from src.data.dataset import RSRPEpisodeDataset
+from src.models.episodic_diffusion import build_latent_model
+from src.train.validation import validate_episodes
 
 
 def temporal_train_validation_indices(dataset, validation_fraction):
@@ -57,7 +57,7 @@ def main():
     train_paths = sorted(train_path.glob("*.csv"))
     evaluation_paths = sorted(evaluation_path.glob("*.csv"))
     print(f"training scenario files: {len(train_paths)}, evaluation scenario files: {len(evaluation_paths)}")
-    dataset = RSRPWindowDataset(train_path, data_cfg["sequence_length"], diffusion_cfg["future_length"])
+    dataset = RSRPEpisodeDataset(train_path, data_cfg["episode_length"])
     train_indices, validation_indices = temporal_train_validation_indices(
         dataset, training_cfg["validation_fraction"]
     )
@@ -70,11 +70,8 @@ def main():
     print(f"training episodes: {len(train_indices)}, validation episodes: {len(validation_indices)}")
     loader = DataLoader(Subset(dataset, train_indices), batch_size=training_cfg["batch_size"], shuffle=True)
     validation_loader = DataLoader(Subset(dataset, validation_indices), batch_size=training_cfg["batch_size"])
-    model = EpisodicDiffusion(
-        data_cfg["input_dim"], diffusion_cfg["future_length"], model_cfg["hidden_dim"],
-        model_cfg["latent_dim"], diffusion_cfg["timesteps"], model_cfg["transformer_heads"],
-        model_cfg["transformer_layers"], model_cfg["dropout"],
-    ).to(device)
+    model = build_latent_model(config).to(device)
+    beta = training_cfg["kl_beta"]
     optimizer = torch.optim.AdamW(model.parameters(), lr=training_cfg["learning_rate"])
 
     best_score = float("inf")
@@ -86,28 +83,26 @@ def main():
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     training_log = []
     for epoch in range(1, training_cfg["epochs"] + 1):
-        total_loss, count = 0.0, 0
+        totals, count = dict(loss=0.0, diffusion_mse=0.0, kl=0.0), 0
         model.train()
-        for history, future in tqdm(loader, desc=f"epoch {epoch:03d}", leave=False):
-            history, future = history.to(device), future.to(device)
+        for episode in tqdm(loader, desc=f"epoch {epoch:03d}", leave=False):
+            episode = episode.to(device)
             optimizer.zero_grad()
-            loss = model.loss(history, future)
-            loss.backward()
+            terms = model.loss_terms(episode, beta)
+            terms["loss"].backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
-            total_loss += loss.item() * len(history)
-            count += len(history)
-        metrics = validate(model, validation_loader, device, dataset.mean, dataset.std,
-                           training_cfg["validation_samples"], training_cfg["validation_seed"])
-        score = metrics["crps_dbm"]
-        if not np.isfinite(score) or not np.isfinite(metrics["v_mse"]):
-            raise RuntimeError("Non-finite validation metric; check training stability.")
-        print(
-            f"epoch={epoch:03d} train_v_mse={total_loss/count:.5f} "
-            f"validation_v_mse={metrics['v_mse']:.5f} "
-            f"validation_crps_dbm={score:.4f} validation_mae_dbm={metrics['mae_dbm']:.4f} "
-            f"coverage_90={metrics['coverage_90']:.3f}"
-        )
+            for name in totals:
+                totals[name] += terms[name].item() * len(episode)
+            count += len(episode)
+        metrics = validate_episodes(model, validation_loader, device, dataset.mean, dataset.std,
+                                    beta, training_cfg["validation_samples"], training_cfg["validation_seed"])
+        score = metrics["loss"]
+        if not all(np.isfinite(metrics[k]) for k in ("loss", "diffusion_mse", "kl")):
+            raise RuntimeError("Non-finite validation loss.")
+        print(f"epoch={epoch:03d} train_loss={totals['loss']/count:.5f} "
+              f"validation_loss={score:.5f} diffusion={metrics['diffusion_mse']:.5f} "
+              f"kl={metrics['kl']:.5f} reconstruction_crps={metrics['reconstruction_crps_dbm']:.4f}")
         # Save the actual minimum even if the improvement is smaller than min_delta.
         if score < best_score:
             best_score = score
@@ -117,7 +112,7 @@ def main():
                 "model_format": model.FORMAT,
                 "model": model.state_dict(), "mean": dataset.mean, "std": dataset.std,
                 "config": config, "best_epoch": best_epoch,
-                "selection_metric": "validation_crps_dbm", "best_validation_metrics": best_metrics,
+                "selection_metric": "validation_total_loss", "best_validation_metrics": best_metrics,
                 "train_files": [str(path) for path in train_paths],
                 "evaluation_files": [str(path) for path in evaluation_paths],
             }, checkpoint_dir / "episodicdt.pt")
@@ -126,7 +121,7 @@ def main():
             epochs_without_improvement = 0
         else:
             epochs_without_improvement += 1
-        training_log.append({"epoch": epoch, "train_v_mse": total_loss / count, **metrics})
+        training_log.append({"epoch": epoch, **{"train_" + k: v/count for k, v in totals.items()}, **metrics})
         (checkpoint_dir / "training_metrics.json").write_text(
             json.dumps(training_log, indent=2, allow_nan=False) + "\n"
         )
@@ -134,7 +129,7 @@ def main():
             print(f"early stopping at epoch {epoch}; best epoch was {best_epoch}")
             break
 
-    print(f"best saved model: epoch={best_epoch}, validation_crps_dbm={best_score:.5f}")
+    print(f"best saved model: epoch={best_epoch}, validation_total_loss={best_score:.5f}")
     print(f"saved checkpoint: {checkpoint_dir / 'episodicdt.pt'}")
 
 
