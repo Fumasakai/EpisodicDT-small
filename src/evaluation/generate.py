@@ -21,13 +21,15 @@ def main():
     if args.samples < 1 or args.batch_size < 1:
         parser.error('Positive samples and batch-size required')
     model, checkpoint = load_model(args.checkpoint)
+    device = next(model.parameters()).device
+    print(f"Generation device: {device}")
     latent = torch.load(args.latents, map_location='cpu', weights_only=True)
     digest = hashlib.sha256(args.checkpoint.read_bytes()).hexdigest()
     if latent.get('checkpoint_sha256') != digest:
         raise ValueError('Latent file belongs to a different checkpoint.')
     torch.manual_seed(args.seed)
     z = latent['z']
-    generated = torch.cat([model.generate(batch, args.samples)
+    generated = torch.cat([model.generate(batch.to(device), args.samples).cpu()
                            for batch in z.split(args.batch_size)])[..., 0]
     generated = generated.numpy()*checkpoint['std']+checkpoint['mean']
     save_generated(generated, args.output)

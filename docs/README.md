@@ -1,6 +1,6 @@
 # プログラム説明資料
 
-- `direct_z_program_guide.tex`：現在の `direct_z_episode_v2` の説明資料
+- `direct_z_program_guide.tex`：現在の `direct_z_conv_episode_v3` の説明資料
 - `direct_z_program_guide.pdf`：コンパイル済みPDF
 
 構成図はTikZで描画しているため、外部画像ファイルは不要です。

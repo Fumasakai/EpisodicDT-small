@@ -29,7 +29,7 @@ class TrainingWorkflowTests(unittest.TestCase):
                          'train_path': str(train), 'evaluation_path': str(evaluation)},
                 'model': {'hidden_dim': 8, 'latent_dim': 4, 'transformer_heads': 2,
                           'transformer_layers': 1, 'dropout': 0.0},
-                'diffusion': {'timesteps': 4},
+                'diffusion': {'timesteps': 4, 'denoiser': 'conv1d', 'conv_channels': 8, 'conv_blocks': 2},
                 'training': {'batch_size': 16, 'epochs': 5, 'learning_rate': 0.0, 'seed': 7,
                              'checkpoint_dir': str(root / 'checkpoints'), 'validation_fraction': 0.2,
                              'validation_samples': 4, 'validation_seed': 13,
@@ -39,8 +39,7 @@ class TrainingWorkflowTests(unittest.TestCase):
                                'figure_dir': str(root / 'figures'),
                                'boxplot_path': str(root / 'figures/box.png'),
                                'generated_csv': str(root / 'generated.csv'),
-                               'actual_csv': str(root / 'actual.csv'),
-                               'small_multiples_episodes': 2},
+                               'actual_csv': str(root / 'actual.csv')},
             }
             config_path = root / 'config.yaml'
             config_path.write_text(yaml.safe_dump(config))
@@ -69,7 +68,10 @@ class TrainingWorkflowTests(unittest.TestCase):
                                     '--samples', '2']):
                 generate_main()
             self.assertEqual(len(pd.read_csv(root/'from_z.csv')), (120-8+1)*2*8)
-            self.assertTrue((root / 'figures/episode_boxplot_by_step.png').is_file())
+            self.assertFalse((root / 'figures/episode_median_boxplot_by_step.png').exists())
+            self.assertFalse((root / 'figures/episode_boxplot_by_step.png').exists())
+            self.assertTrue((root / 'figures/episode_autocorrelation.png').is_file())
+            self.assertTrue((root / 'figures/episode_mean_squared_change.png').is_file())
 
 
 if __name__ == '__main__':

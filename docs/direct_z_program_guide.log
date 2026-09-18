@@ -829,15 +829,15 @@ Package hyperref Warning: Token not allowed in a PDF string (Unicode):
 [2]
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 167.
+(hyperref)                removing `math shift' on input line 170.
 
 
 Package hyperref Warning: Token not allowed in a PDF string (Unicode):
-(hyperref)                removing `math shift' on input line 167.
+(hyperref)                removing `math shift' on input line 170.
 
 [3] [4] (direct_z_program_guide.aux)
 Package rerunfilecheck Info: File `direct_z_program_guide.out' has not changed.
 
 (rerunfilecheck)             Checksum: 8E9298060CA49439A2CCC7CA610FE4FC;2214.
  )
-Output written on direct_z_program_guide.xdv (4 pages, 88224 bytes).
+Output written on direct_z_program_guide.xdv (4 pages, 91144 bytes).

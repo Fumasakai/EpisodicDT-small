@@ -2,7 +2,7 @@
 
 元エピソード全体からEncoderが出力したベクトルをそのまま潜在変数zとし、
 zと拡散ノイズから新しいRSRPエピソード全体を生成します。
-標準形式は `direct_z_episode_v2` です。
+標準形式は `direct_z_conv_episode_v3` です。
 
 ```text
 元エピソード [B,40,1] → Transformer Encoder → z [B,32]
@@ -29,6 +29,7 @@ python -m src.evaluation.evaluate --config configs/config.yaml --samples 32 --se
 ```
 
 設定は `configs/config.yaml`。`data.episode_length: 40` は全体のステップ数です。
+評価と保存済みzからの生成は、CUDAが利用可能なら自動でGPUを使用し、利用できなければCPUで実行します。使用デバイスは起動時に表示します。生成結果とzはバッチごとにCPUへ戻し、CSV・グラフ・潜在変数ファイルの保存形式を維持します。
 約2 Hzなら約20秒ですが、実時間は元の計測時刻に依存します。
 固定ステップのRSRP系列を扱い、時刻の補間は行いません。
 
@@ -36,8 +37,8 @@ python -m src.evaluation.evaluate --config configs/config.yaml --samples 32 --se
 
 ```bash
 python -m src.evaluation.generate \
-  --checkpoint results/checkpoints/direct_z_episode_v2/episodicdt.pt \
-  --latents results/generated/direct_z_generated_episodes.latents.pt \
+  --checkpoint results/checkpoints/direct_z_conv_episode_v3/episodicdt.pt \
+  --latents results/generated/direct_z_conv_generated_episodes.latents.pt \
   --output results/generated/from_direct_z.csv \
   --samples 16 --seed 42
 ```
@@ -65,12 +66,12 @@ rsrp_dbm = new_episodes * training_std + training_mean
   元系列全体をEncoderへ入力する条件付き再生成であり、未来予測精度ではありません。
 - 危険例生成率や危険閾値表示は含みません。標準学習は通常・危険の全窓を対象とします。
 
-チェックポイントは `results/checkpoints/direct_z_episode_v2/`、図は
-`results/figures/direct_z_episode_v2/` に保存します。
+チェックポイントは `results/checkpoints/direct_z_conv_episode_v3/`、図は
+`results/figures/direct_z_conv_episode_v3/` に保存します。
 生成CSVの列は `episode_id, sample_id, episode_step, rsrp_generated_dbm`。
 元系列CSV、潜在変数ファイル、評価JSONも保存します。
 
-**旧形式 `latent_episode_v1`、`zero_snr_v_residual_v1` とは非互換で、再学習が必要です。**
+**旧MLP形式 `direct_z_episode_v2`、旧形式 `latent_episode_v1`、`zero_snr_v_residual_v1` とは非互換で、再学習が必要です。**
 旧結果を比較用に残すため、新形式は別の保存先を使います。
 旧設定から移行する場合は `kl_beta` を削除し、新しい設定と保存先を使ってください。
 旧未来予測用の `EpisodicDiffusion` / `RSRPWindowDataset` は比較用に残しています。
@@ -91,20 +92,50 @@ Encoder出力とzの一致、推論時の決定性、Encoderへの勾配、zの�
 
 [2ページ想定のLaTeX概要](docs/latent_episode_overview.tex)
 
-## 生成中央値のステップ別分布
-
-`episode_median_boxplot_by_step.png` は、各元エピソードについて生成サンプル軸で
-中央値を取り、ステップごとに元系列の分布と比較します。
-元系列・生成中央値ともに各ステップN個（Nは元エピソード数）の値を使います。
-全生成サンプルを集約する既存の `episode_boxplot_by_step.png` も出力します。
-中央値比較は生成分布の中心の再現を見るもので、生成例間のばらつきは表示しません。
-
 ## 隣接ステップの変化量分布
 
 `episode_delta_distribution.png` は各エピソード内で `x[t+1] - x[t]` を計算して比較します。
-左は元系列と個々の生成系列、右は元系列と各元エピソードに対応する生成中央値系列です。
-右は「中央値系列の変化量」であり、「変化量の中央値」ではありません。
+元系列と個々の生成系列の変化量分布を、1つのパネルで比較します。
 横軸はdB（時間当たりの変化率ではない）、縦軸は確率密度です。
 共通のビン境界と面積1の正規化で、標本数の違いを考慮します。
 全値を含み、別エピソードや別生成サンプルの境界をまたぐ差は取りません。
 生成側の分布が広いほど急な変化が多いことを示しますが、これだけでは長時間の相関は評価できません。
+
+## 時間方向の畳み込み生成器（v3）
+
+拡散モデルのv予測器をMLPからConv1dへ変更しました。Encoder、v予測MSE、
+ノイズスケジュール、DDPMサンプリングは維持しています。Encoderは従来どおり同時学習します。
+固定した学習済みEncoderを用いる比較実験は、この変更には含みません。
+
+- 入力系列を `[B,1,L]` に変換し、位置座標（−1〜1）を追加。
+- 1×1畳み込みで64チャネルへ変換。
+- 4個の残差ブロック。それぞれkernel=3、dilation=1,2,4,8の畳み込みを2回使用。
+- 各ブロックへzと拡散ステップの埋込みをスケール・シフトとして渡す。
+- GroupNorm・SiLU・1×1畳み込みで `[B,L,1]` のvを出力。
+
+畳み込み経路の受容野は61ステップです。GroupNormは時間軸も含めて正規化します。
+パディングで長さを保ち、全体生成用なので因果マスクはありません。
+位置情報は、入力が純粋なノイズの場合もzから時刻固有の特徴を再現できるように与えます。
+設定項目は `diffusion.denoiser: conv1d`、`conv_channels: 64`、`conv_blocks: 4` です。
+畳み込みに変えただけで変動の改善が保証されるわけではなく、再学習後に個々の生成系列の
+変化量分布・自己相関・再生成精度を比較してください。
+
+旧MLPの評価・再学習には `--config configs/mlp_baseline.yaml` を指定できます。
+旧v2チェックポイントの読込みにも対応しています。v3の重みとは互換性がありません。
+比較時はモデル容量・計算量の違いと学習seedの影響も考慮してください。
+
+## 元エピソードと生成系列の折れ線比較
+
+`episodes.png` はランダムに選んだ元エピソード1本と、それに対応する生成系列から重複なしで選んだ8本を、2列×4行で比較します。各パネルの緑線が同じ元系列、青線が個々の生成系列です。選択には評価の `--seed` を使用し、同じデータとseedなら同じ選択になります。生成本数が8本未満なら、利用可能な全本数を表示します。
+
+## 時間的特徴の比較
+
+評価時に `episode_autocorrelation.png`（自己相関）と
+`episode_mean_squared_change.png`（時間間隔ごとの平均二乗変化量）を出力します。
+元系列と個々の生成系列でそれぞれ指標を計算し、緑・青の線で平均、帯で系列間の10–90%点を表示します。
+帯は信頼区間ではありません。生成値の中央値系列は使用しません。
+時間差は0からエピソード長の半分（40ステップなら20）までです。
+自己相関は各系列の平均を引き、遅れ積和を系列全体の偏差平方和で割ります。
+定数系列は自己相関が未定義なので除外し、除外数を図に表示します。
+平均二乗変化量は各時間差kについて `(x[i+k]-x[i])**2` の系列内平均です。
+重なる窓から切り出した元系列は独立標本ではありません。

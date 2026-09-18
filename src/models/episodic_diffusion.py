@@ -61,6 +61,62 @@ class NoisePredictor(nn.Module):
         return self.network(torch.cat([flattened, context, time_features], dim=-1)).unsqueeze(-1)
 
 
+class TemporalResidualBlock(nn.Module):
+    """Two dilated temporal convolutions conditioned by z and diffusion time."""
+
+    def __init__(self, channels, dilation):
+        super().__init__()
+        self.norm1 = nn.GroupNorm(1, channels)
+        self.norm2 = nn.GroupNorm(1, channels)
+        self.conv1 = nn.Conv1d(channels, channels, 3, padding=dilation, dilation=dilation)
+        self.conv2 = nn.Conv1d(channels, channels, 3, padding=dilation, dilation=dilation)
+        self.condition = nn.Linear(channels, 2 * channels)
+
+    def forward(self, x, condition):
+        h = self.conv1(nn.functional.silu(self.norm1(x)))
+        scale, shift = self.condition(condition).chunk(2, dim=-1)
+        h = self.norm2(h) * (1 + scale.unsqueeze(-1)) + shift.unsqueeze(-1)
+        h = self.conv2(nn.functional.silu(h))
+        return (x + h) / (2 ** 0.5)
+
+
+class TemporalConvPredictor(nn.Module):
+    """Noncausal Conv1d v predictor preserving [batch, step, 1] at the API.
+
+    An explicit position channel lets a global z describe time-local features
+    even at the terminal diffusion step where the input is pure noise.
+    """
+
+    def __init__(self, sequence_length, latent_dim, channels=64, num_blocks=4):
+        super().__init__()
+        if channels < 2 or not 1 <= num_blocks <= 8:
+            raise ValueError("conv_channels >= 2 and 1 <= conv_blocks <= 8 required.")
+        self.sequence_length = sequence_length
+        self.input_projection = nn.Conv1d(2, channels, 1)
+        self.condition_embedding = nn.Sequential(
+            nn.Linear(latent_dim + 1, channels), nn.SiLU(), nn.Linear(channels, channels)
+        )
+        self.blocks = nn.ModuleList([
+            TemporalResidualBlock(channels, 2 ** i) for i in range(num_blocks)
+        ])
+        self.output_projection = nn.Sequential(
+            nn.GroupNorm(1, channels), nn.SiLU(), nn.Conv1d(channels, 1, 1)
+        )
+        self.register_buffer("positions", torch.linspace(-1, 1, sequence_length).view(1, 1, -1))
+
+    def forward(self, noisy_episode, timestep, context):
+        if noisy_episode.ndim != 3 or noisy_episode.shape[1:] != (self.sequence_length, 1):
+            raise ValueError("Expected noisy episode [B, sequence_length, 1].")
+        x = noisy_episode.transpose(1, 2)
+        position = self.positions.to(dtype=x.dtype).expand(len(x), -1, -1)
+        h = self.input_projection(torch.cat([x, position], dim=1))
+        t = timestep.reshape(-1, 1).to(dtype=context.dtype)
+        condition = self.condition_embedding(torch.cat([context, t], dim=-1))
+        for block in self.blocks:
+            h = block(h, condition)
+        return self.output_projection(h).transpose(1, 2)
+
+
 class EpisodicDiffusion(nn.Module):
     # Old epsilon/absolute-RSRP checkpoints have incompatible semantics.
     FORMAT = "zero_snr_v_residual_v1"
@@ -142,14 +198,24 @@ class LatentEpisodeDiffusion(EpisodicDiffusion):
     Its history-conditioned loss/sampler are both overridden.
     """
 
-    FORMAT = "direct_z_episode_v2"
+    FORMAT = "direct_z_conv_episode_v3"
+    MLP_FORMAT = "direct_z_episode_v2"
 
     def __init__(self, input_dim, episode_length, hidden_dim, latent_dim, timesteps,
-                 transformer_heads=4, transformer_layers=2, dropout=0.1):
+                 transformer_heads=4, transformer_layers=2, dropout=0.1,
+                 denoiser="conv1d", conv_channels=64, conv_blocks=4):
         if episode_length < 1 or latent_dim < 1 or hidden_dim % 2:
             raise ValueError("Positive episode/latent lengths and even hidden_dim required.")
         super().__init__(input_dim, episode_length, hidden_dim, latent_dim, timesteps,
                          transformer_heads, transformer_layers, dropout)
+        if denoiser == "conv1d":
+            self.noise_predictor = TemporalConvPredictor(
+                episode_length, latent_dim, conv_channels, conv_blocks
+            )
+        elif denoiser == "mlp":
+            self.FORMAT = self.MLP_FORMAT
+        else:
+            raise ValueError("denoiser must be 'conv1d' or 'mlp'.")
         self.episode_length = episode_length
         self.latent_dim = latent_dim
 
@@ -214,4 +280,8 @@ def build_latent_model(config):
         data["input_dim"], data["episode_length"], model["hidden_dim"],
         model["latent_dim"], config["diffusion"]["timesteps"],
         model["transformer_heads"], model["transformer_layers"], model["dropout"],
+        # Missing field identifies saved v2 configurations from before Conv1d.
+        denoiser=config["diffusion"].get("denoiser", "mlp"),
+        conv_channels=config["diffusion"].get("conv_channels", 64),
+        conv_blocks=config["diffusion"].get("conv_blocks", 4),
     )

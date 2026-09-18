@@ -12,9 +12,7 @@ model:
   dropout: 0.05
 
 diffusion:
-  denoiser: conv1d
-  conv_channels: 64
-  conv_blocks: 4
+  denoiser: mlp
   timesteps: 100
 
 training:
@@ -22,7 +20,7 @@ training:
   epochs: 150
   learning_rate: 0.0001
   seed: 42
-  checkpoint_dir: results/checkpoints/direct_z_conv_episode_v3
+  checkpoint_dir: results/checkpoints/direct_z_episode_v2
   validation_samples: 32
   validation_seed: 12345
   validation_fraction: 0.2
@@ -31,9 +29,9 @@ training:
   early_stopping_min_delta: 0.001  # total validation loss improvement
 
 evaluation:
-  figure_dir: results/figures/direct_z_conv_episode_v3
-  generated_csv: results/generated/direct_z_conv_generated_episodes.csv
-  actual_csv: results/generated/direct_z_conv_source_episodes.csv
-  boxplot_path: results/figures/direct_z_conv_episode_v3/episode_boxplot.png
+  figure_dir: results/figures/direct_z_episode_v2
+  generated_csv: results/generated/direct_z_generated_episodes.csv
+  actual_csv: results/generated/direct_z_source_episodes.csv
+  boxplot_path: results/figures/direct_z_episode_v2/episode_boxplot.png
   batch_size: 64
-  delta_distribution_path: results/figures/direct_z_conv_episode_v3/episode_delta_distribution.png
+  delta_distribution_path: results/figures/direct_z_episode_v2/episode_delta_distribution.png
