@@ -30,7 +30,7 @@ class TrainingWorkflowTests(unittest.TestCase):
                 'model': {'hidden_dim': 8, 'latent_dim': 4, 'transformer_heads': 2,
                           'transformer_layers': 1, 'dropout': 0.0},
                 'diffusion': {'timesteps': 4},
-                'training': {'kl_beta': 0.001, 'batch_size': 16, 'epochs': 5, 'learning_rate': 0.0, 'seed': 7,
+                'training': {'batch_size': 16, 'epochs': 5, 'learning_rate': 0.0, 'seed': 7,
                              'checkpoint_dir': str(root / 'checkpoints'), 'validation_fraction': 0.2,
                              'validation_samples': 4, 'validation_seed': 13,
                              'min_epochs': 2, 'early_stopping_patience': 1,

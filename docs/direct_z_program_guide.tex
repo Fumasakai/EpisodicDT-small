@@ -1,0 +1,240 @@
+% Compile with XeLaTeX twice, or Tectonic once (automatic reruns).
+% xelatex -interaction=nonstopmode -halt-on-error -output-directory=docs docs/direct_z_program_guide.tex
+% tectonic --outdir docs docs/direct_z_program_guide.tex
+\documentclass[a4paper,10pt]{article}
+\usepackage{xeCJK}
+\IfFontExistsTF{Noto Serif CJK JP}{
+  \setCJKmainfont{Noto Serif CJK JP}
+  \setCJKsansfont{Noto Sans CJK JP}
+  \setCJKmonofont{Noto Sans CJK JP}
+}{
+  \setCJKmainfont{HaranoAjiMincho-Regular.otf}[BoldFont=HaranoAjiMincho-Bold.otf]
+  \setCJKsansfont{HaranoAjiGothic-Medium.otf}
+  \setCJKmonofont{HaranoAjiGothic-Medium.otf}
+}
+\setlength{\parindent}{1em}
+\linespread{1.05}
+\usepackage[margin=20mm]{geometry}
+\usepackage{amsmath,amssymb,booktabs,tabularx,array}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\usepackage[hidelinks]{hyperref}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\setlength{\parskip}{3pt}
+\renewcommand{\arraystretch}{1.18}
+\pagestyle{plain}
+\begin{document}
+\begin{center}
+{\LARGE\bfseries 潜在変数からのRSRPエピソード生成}\\[3mm]
+{\large EpisodicDT-small：プログラム説明資料}\\[2mm]
+{\small 対象形式：\texttt{direct\_z\_episode\_v2} \quad 作成日：2026年9月15日}
+\end{center}
+
+\section{目的と全体構成}
+本プログラムの現在の目的は、\textbf{元エピソードから抽出した潜在変数を用いて、
+元データと似た特徴を持つ新しいエピソードを生成できるか確認すること}である。
+入力履歴に続く未来だけを予測する方式から、エピソード全体を入力・生成対象とする方式へ変更した。
+対象は単変量のRSRP系列であり、通信制御AIや物理シミュレータとの接続は現行処理に含まない。
+
+\subsection{全体のアーキテクチャ}
+\begin{center}
+\begin{tikzpicture}[>=Stealth,font=\small,node distance=7mm,
+ box/.style={draw,rounded corners,align=center,text width=43mm,minimum height=11mm}]
+\node[box] (csv) {RSRPのCSV\\時系列の取込み・窓の作成};
+\node[box,right=of csv] (norm) {学習区間の統計量で標準化\\元エピソード $x_0:[B,L,1]$};
+\node[box,right=of norm] (enc) {Transformer Encoder\\$z=E_\phi(x_0):[B,D]$};
+\node[box,below=10mm of enc] (diff) {条件付き拡散モデル\\$\hat v_\theta(x_t,t,z)$};
+\node[box,left=of diff] (noise) {生成時：初期ノイズ $x_T$\\学習時：ノイズ付き系列 $x_t$};
+\node[box,below=10mm of diff] (gen) {逆拡散・逆標準化\\生成系列 $[B,S,L,1]$};
+\node[box,left=of gen] (eval) {元系列との比較・保存\\CSV、潜在変数、図、指標};
+\draw[->] (csv)--(norm); \draw[->] (norm)--(enc);
+\draw[->] (enc)--node[right]{条件 $z$}(diff);
+\draw[->] (noise)--(diff); \draw[->] (diff)--(gen); \draw[->] (gen)--(eval);
+\draw[->,dashed] (norm.south)--(noise.north);
+\end{tikzpicture}
+\end{center}
+破線は学習時に正解系列へノイズを加える経路を示す。
+生成時は\textbf{潜在変数$z$と拡散ノイズだけ}を使い、元エピソードを生成器へ直接渡さない。
+同じ$z$からでも、ノイズを変えることで複数系列を生成する。
+
+\subsection{入出力と初期設定}
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}lY@{}}\toprule
+項目 & 内容\\\midrule
+入力データ & CSVの\texttt{rsrp}列。単位dBm。窓はファイル境界をまたがない。\\
+エピソード長 & $L=40$ステップ。約2 Hzなら約20秒だが、実時間は元の測定間隔に依存する。\\
+潜在変数 & $D=32$次元の実数ベクトル。Encoderの出力そのもの。\\
+生成数 & 標準評価は元エピソードごとに$S=32$系列。\\
+出力データ & 生成系列・元系列のCSV、潜在変数ファイル、評価JSON、比較図。\\
+対象外 & 多変量観測、可変長系列、基地局操作による状態遷移の計算。\\\bottomrule
+\end{tabularx}\end{center}
+$B$はバッチ内のエピソード数である。現在は通常・危険の全窓を扱い、
+危険だけへの自動抽出や危険例生成率による評価は行わない。
+
+\newpage
+\section{データ処理とモデルの内部構造}
+\subsection{窓の作成と標準化}
+\texttt{RSRPEpisodeDataset}はファイルごとに長さ$L$の連続窓を1ステップ刻みで作る。
+長さ$N$のファイルでは$N-L+1$個の窓が得られる。短すぎるファイルは窓作成対象から除かれる。
+入力は有限値のRSRP系列を想定し、非有限値があればエラーとする。
+時刻の補間は行わないため、時刻間隔や欠測の処理は前処理側で確認する必要がある。
+
+学習用の各系列を時間順に前方80\%・後方20\%へ分け、それぞれ学習・検証に使う。
+境界をまたぐ窓は除外する。正規化の平均$m_{\rm tr}$と標準偏差$s_{\rm tr}$は
+\textbf{検証部分を除いた学習区間のみ}から求める。
+\[
+ x_{0,\ell}=\frac{r_\ell-m_{\rm tr}}{s_{\rm tr}},\qquad
+ \widetilde r_\ell=s_{\rm tr}\widetilde x_{0,\ell}+m_{\rm tr}.
+\]
+標準偏差には数値安定性のため下限$10^{-6}$を置く。
+元エピソードごとの平均値や最終値を生成結果へ加算する処理はない。
+最終評価には別途指定された評価用ファイルを用いる。
+
+\subsection{Encoder：全体系列から直接$z$を得る}
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}lYY@{}}\toprule
+処理 & 内容 & 標準のテンソル形状\\\midrule
+入力射影 & RSRPの1次元を128次元へ線形変換 & $[B,40,1]\to[B,40,128]$\\
+位置情報 & 正弦・余弦による位置符号化を加算 & $[B,40,128]$\\
+Transformer & 4ヘッド、3層のEncoder & $[B,40,128]$\\
+代表特徴の抽出 & 最後のトークンの出力を使用 & $[B,128]$\\
+潜在射影 & 線形層とSiLU & $[B,128]\to[B,32]$\\\bottomrule
+\end{tabularx}\end{center}
+Attentionには因果マスクを用いず、最後のトークンの表現もエピソード全体を参照できる。
+最後のRSRP値だけを使うという意味ではない。
+\[
+ \boxed{z=E_\phi(x_0)}
+\]
+$\mu$・$\sigma$の推定、潜在変数の確率的サンプリング、KL正則化は行わない。
+学習時にはdropout（設定値0.05）を用いるが、推論時に\texttt{model.eval()}とすると、
+同じ入力から同じ$z$を得る。各潜在次元に遮蔽量などの物理的意味を指定してはいない。
+
+\subsection{拡散モデル：$(x_t,t,z)$から$v$を予測する}
+拡散器のクラス内では\texttt{NoisePredictor}という名称を使っているが、
+現在の出力対象はノイズそのものではなく速度パラメータ$v$である。
+ノイズ付き系列$x_t$を平坦化した$L$次元、潜在変数$z$の32次元、
+拡散ステップ$t$の128次元埋込みを連結する。
+標準構成では入力は$40+32+128=200$次元で、
+\textbf{200$\to$128$\to$128$\to$40}のMLP（中間層にSiLU）から$[B,40,1]$を出力する。
+この$t$はエピソード中の観測時刻とは別の、ノイズ除去のステップ番号である。
+
+\newpage
+\section{学習・生成アルゴリズム}
+\subsection{学習時の計算}
+数式では拡散ステップを$t=1,\ldots,T$と表す（コードの配列添字は$0,\ldots,T-1$）。
+$T=100$で、累積信号係数$\bar\alpha_T=0$になるようノイズスケジュールを再調整する。
+各エピソードについて$t$を一様に選び、独立な$\epsilon\sim\mathcal{N}(0,I)$を生成する。
+\begin{align}
+ z&=E_\phi(x_0),\\
+ x_t&=\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\epsilon,\\
+ v_t&=\sqrt{\bar\alpha_t}\,\epsilon-\sqrt{1-\bar\alpha_t}\,x_0,\\
+ \mathcal{L}(\phi,\theta)&=
+ \mathbb{E}_{x_0,t,\epsilon}\!\left[
+ \frac1L\left\|\hat v_\theta(x_t,t,E_\phi(x_0))-v_t\right\|_2^2\right].
+\end{align}
+\textbf{損失は$v$予測MSEのみ}である。正解の$z$を与える教師データはなく、
+生成に役立つ表現を学ぶよう、$z$を通じてEncoderにも勾配を伝える。
+現在は入力と生成対象が同じエピソードである。
+モデルAPIには同じ環境条件から得た別エピソードを\texttt{target}として渡す機能もあるが、
+標準の学習ループでは使用していない。
+
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}lY@{}}\toprule
+学習設定 & 現在の設定値・処理\\\midrule
+最適化 & AdamW、学習率$10^{-4}$、バッチサイズ64。\\
+安定化 & 勾配ノルムの上限1.0。\\
+学習回数 & 最大150エポック、最低30エポック。\\
+モデル選択 & 検証$v$予測MSEの実際の最小値を保存。\\
+Early Stopping & 0.001を超える検証損失改善が15エポック連続でなければ、最低回数以降に終了。\\
+再現性 & 学習seedは42。検証seedは12345で毎回固定し、学習側の乱数状態を保存・復元。\\\bottomrule
+\end{tabularx}\end{center}
+ログの\texttt{loss}と\texttt{diffusion\_mse}は同じ値である。
+CRPSは診断用に記録するが、現行のモデル選択には使っていない。
+
+\subsection{生成時の計算}
+元エピソードを一度Encoderへ入力して$z$を得る。
+各生成例の$x_T$は独立な標準正規ノイズから開始し、$z$を固定して逆拡散する。
+\begin{align}
+ \widehat x_0&=\sqrt{\bar\alpha_t}\,x_t
+              -\sqrt{1-\bar\alpha_t}\,\hat v_\theta(x_t,t,z),\\
+ x_{t-1}&=c_t\widehat x_0+d_tx_t+\sqrt{\widetilde\beta_t}\,\xi_t.
+\end{align}
+$c_t,d_t,\widetilde\beta_t$はノイズスケジュールから計算するDDPMの係数であり、
+$\xi_t$は新しい標準正規ノイズである。最後のステップではノイズを加えない。
+完了後、学習時の統計量を用いてdBmへ戻す。
+初期ノイズと途中のノイズが異なるため、同じ$z$から複数の系列が得られる。
+
+\subsection{APIと保存済み$z$の利用}
+\begin{verbatim}
+model.eval()
+z = model.encode(normalized_episode)         # [B,32]
+x = model.generate(z, num_samples=32)         # [B,32,40,1]
+rsrp_dbm = x * training_std + training_mean
+\end{verbatim}
+保存済み$z$を使う場合はEncoderと元CSVを参照せず生成できる。
+モデルと潜在ファイルの対応はチェックポイントのSHA-256で照合する。
+旧確率潜在モデルの重み・潜在ファイルとは非互換である。
+
+\newpage
+\section{評価方法・出力・利用手順}
+\subsection{評価指標の定義}
+元系列の値を$y_{n\ell}$、生成値を$g_{ns\ell}$とし、
+$n$をエピソード、$s=1,\ldots,S$を生成例、$\ell$をステップとする。
+生成平均は$\bar g_{n\ell}=S^{-1}\sum_sg_{ns\ell}$である。
+\begin{align*}
+ \mathrm{MAE}&=\frac1{NL}\sum_{n,\ell}|\bar g_{n\ell}-y_{n\ell}|,\\
+ \mathrm{CRPS}&=\frac1{NL}\sum_{n,\ell}\left[
+ \frac1S\sum_s|g_{ns\ell}-y_{n\ell}|
+ -\frac1{2S^2}\sum_{s,r}|g_{ns\ell}-g_{nr\ell}|\right].
+\end{align*}
+いずれもRSRPの差に基づく量で、小さいほど元系列に整合する。
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}lY@{}}\toprule
+その他の指標 & 定義・注意点\\\midrule
+90\%区間被覆率 & 各点の元の値が生成値の5--95\%分位区間に入る割合。区間幅と併せて評価する。\\
+ステップ別統計 & CRPS、MAE、平均誤差、元・生成の標準偏差、被覆率、区間幅。\\
+固定$z$内の標準偏差 & 同じ元エピソード・同じステップの生成例間標準偏差を、全エピソード・ステップで平均する。\\\bottomrule
+\end{tabularx}\end{center}
+\textbf{これらは元エピソード全体をEncoderに与えた条件付き再生成の評価であり、
+独立した未来予測の精度ではない。}生成のばらつきが大きければよいわけではなく、
+過大な裾や区間幅にも注意する。危険例生成率は現段階の指標に含まない。
+
+\subsection{図と出力ファイル}
+図と指標の保存先は\path{results/figures/direct_z_episode_v2/}である。
+
+代表系列の図\texttt{episodes.png}、全値の箱ひげ図\texttt{episode\_boxplot.png}、
+ステップ別の図\path{episode_boxplot_by_step.png}、
+指標\texttt{episode\_metrics.json}を保存する。
+箱は25--75\%点、中央線は中央値、ひげは1.5 IQR以内の最遠点であり、外れ値は非表示である。
+ひげを最大・最小値と解釈しない。生成側は元データの$S$倍の標本数を持つ。
+系列比較図では緑が元系列、青が生成例のステップ別中央値、濃い帯が25--75\%点、
+薄い帯が5--95\%点である。青線は一つの生成例そのものではない。
+帯は点ごとの区間で、系列全体の被覆確率を表さない。
+図のmedian MAEは中央値との誤差であり、評価JSONのMAEは生成平均との誤差である。
+
+
+生成CSVの列は\texttt{episode\_id, sample\_id, episode\_step, rsrp\_generated\_dbm}。
+元系列CSV、$z$と元ファイル・窓開始位置を含む潜在ファイルも保存する。
+チェックポイントには重み、設定、標準化統計量、最良エポックなどを保存する。
+
+\subsection{実行方法とコードの対応}
+プロジェクト\texttt{EpisodicDT-small}直下で実行する。
+\begin{verbatim}
+conda activate episodicdt
+python -m src.train.train --config configs/config.yaml
+python -m src.evaluation.evaluate --samples 32 --seed 12345
+# 保存済みzからの生成（各パスは実際の保存先を指定）
+python -m src.evaluation.generate --checkpoint MODEL.pt \
+  --latents LATENTS.pt --output generated.csv --samples 16
+\end{verbatim}
+\texttt{src/data/dataset.py}がデータ、\texttt{src/models/episodic\_diffusion.py}がモデル、
+\texttt{src/train/}が学習・検証、\texttt{src/evaluation/}が評価・再生成を担当する。
+設定は\texttt{configs/config.yaml}で管理する。
+
+\subsection{現在の限界と研究への位置付け}
+小さい再生成誤差だけでは、元データの記憶やコピーを排除できない。
+潜在変数の交換実験、最近傍系列との比較、時間構造・分位点の比較が今後必要になる。
+物理的な潜在状態との対応や生成例の実現可能性も未検証である。
+最終的には潜在表現からシミュレータの環境条件を生成し、制約と実測整合性を確認した上で、
+そのシナリオを用いた制御AI学習の効果を独立したシミュレーション条件で評価する。
+\end{document}

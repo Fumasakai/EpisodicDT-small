@@ -12,22 +12,26 @@ class LatentEpisodeTests(unittest.TestCase):
         self.model = LatentEpisodeDiffusion(1, 8, 16, 4, 4, 2, 1, 0)
         self.episode = torch.randn(3, 8, 1)
 
-    def test_kl_formula_and_gradients(self):
-        terms = self.model.loss_terms(self.episode, beta=.03)
-        posterior = self.model.encode(self.episode)
-        expected = torch.distributions.kl_divergence(
-            posterior, torch.distributions.Normal(torch.zeros_like(posterior.loc),
-                                                   torch.ones_like(posterior.scale))).sum(-1).mean()
-        torch.testing.assert_close(terms['kl'], expected)
-        torch.testing.assert_close(terms['loss'], terms['diffusion_mse']+.03*terms['kl'])
-        self.model.loss(self.episode, beta=0).backward()
-        for module in (self.model.encoder, self.model.posterior_head, self.model.noise_predictor):
+    def test_direct_encoder_output_and_gradients(self):
+        self.model.eval()
+        before = torch.random.get_rng_state().clone()
+        z = self.model.encode(self.episode)
+        torch.testing.assert_close(z, self.model.encoder(self.episode))
+        torch.testing.assert_close(z, self.model.encode(self.episode))
+        self.assertTrue(torch.equal(before, torch.random.get_rng_state()))
+        self.assertEqual(z.shape, (3, 4))
+        self.assertFalse(hasattr(self.model, 'posterior_head'))
+        terms = self.model.loss_terms(self.episode)
+        self.assertNotIn('kl', terms)
+        torch.testing.assert_close(terms['loss'], terms['diffusion_mse'])
+        terms['loss'].backward()
+        for module in (self.model.encoder, self.model.noise_predictor):
             self.assertTrue(any(p.grad is not None and p.grad.abs().sum()>0 for p in module.parameters()))
             self.assertTrue(all(torch.isfinite(p.grad).all() for p in module.parameters() if p.grad is not None))
 
     def test_generate_never_calls_encoder_and_latent_changes_output(self):
         self.model.eval()
-        z = self.model.encode(self.episode).sample()
+        z = self.model.encode(self.episode)
         with patch.object(self.model, 'encode', side_effect=AssertionError('source access')):
             torch.manual_seed(8)
             a = self.model.generate(z, 4)
@@ -58,10 +62,10 @@ class LatentEpisodeTests(unittest.TestCase):
         self.model.train()
         loader=DataLoader(self.episode, batch_size=2)
         before=torch.random.get_rng_state().clone()
-        a=validate_episodes(self.model, loader, 'cpu', -90, 5, .001, 3, 7)
+        a=validate_episodes(self.model, loader, 'cpu', -90, 5, 3, 7)
         self.assertTrue(torch.equal(before,torch.random.get_rng_state()))
         self.assertTrue(self.model.training)
-        b=validate_episodes(self.model, loader, 'cpu', -90, 5, .001, 3, 7)
+        b=validate_episodes(self.model, loader, 'cpu', -90, 5, 3, 7)
         self.assertEqual(a,b)
         self.assertIn('reconstruction_crps_dbm',a)
 

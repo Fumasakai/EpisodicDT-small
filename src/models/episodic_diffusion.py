@@ -136,13 +136,13 @@ class EpisodicDiffusion(nn.Module):
 
 
 class LatentEpisodeDiffusion(EpisodicDiffusion):
-    """Variational episode encoder and absolute, full-episode v diffusion.
+    """Deterministic episode encoder and absolute, full-episode v diffusion.
 
     The parent supplies the zero-terminal-SNR diffusion buffers and denoiser.
     Its history-conditioned loss/sampler are both overridden.
     """
 
-    FORMAT = "latent_episode_v1"
+    FORMAT = "direct_z_episode_v2"
 
     def __init__(self, input_dim, episode_length, hidden_dim, latent_dim, timesteps,
                  transformer_heads=4, transformer_layers=2, dropout=0.1):
@@ -152,27 +152,20 @@ class LatentEpisodeDiffusion(EpisodicDiffusion):
                          transformer_heads, transformer_layers, dropout)
         self.episode_length = episode_length
         self.latent_dim = latent_dim
-        self.posterior_head = nn.Linear(latent_dim, 2 * latent_dim)
 
     def encode(self, episode):
-        """Return a diagonal Normal; rsample() propagates gradients to the encoder."""
+        """Return the encoder output z [B,D]; deterministic in eval mode."""
         if episode.ndim != 3 or episode.shape[1:] != (self.episode_length, 1):
             raise ValueError("Expected full normalized episode [B, episode_length, 1].")
-        mu, logvar = self.posterior_head(self.encoder(episode)).chunk(2, dim=-1)
-        # Numerical guard; bounds are part of this checkpoint format.
-        logvar = logvar.clamp(-12, 8)
-        return torch.distributions.Normal(mu, (0.5 * logvar).exp())
+        return self.encoder(episode)
 
-    def loss_terms(self, episode, beta=0.001, target=None):
-        """Mean v MSE + beta * KL (sum over latent dimensions, mean over batch).
+    def loss_terms(self, episode, target=None):
+        """Mean full-episode v MSE; gradients flow directly through z.
 
         Optional target must share the source's environment conditions; ordinary
         unpaired logs use the source episode itself as the target.
         """
-        if not torch.isfinite(torch.tensor(beta)) or beta < 0:
-            raise ValueError("beta must be finite and nonnegative.")
-        posterior = self.encode(episode)
-        z = posterior.rsample()
+        z = self.encode(episode)
         clean = episode if target is None else target
         if clean.shape != episode.shape:
             raise ValueError("Paired target must have the source episode shape.")
@@ -183,12 +176,10 @@ class LatentEpisodeDiffusion(EpisodicDiffusion):
         predicted = self.noise_predictor(noisy, steps / (self.timesteps - 1), z)
         velocity = alpha.sqrt() * noise - (1 - alpha).sqrt() * clean
         diffusion = nn.functional.mse_loss(predicted, velocity)
-        kl = 0.5 * (posterior.loc.square() + posterior.scale.square()
-                    - 2 * posterior.scale.log() - 1).sum(dim=-1).mean()
-        return {"loss": diffusion + beta * kl, "diffusion_mse": diffusion, "kl": kl}
+        return {"loss": diffusion, "diffusion_mse": diffusion}
 
-    def loss(self, episode, beta=0.001, target=None):
-        return self.loss_terms(episode, beta, target)["loss"]
+    def loss(self, episode, target=None):
+        return self.loss_terms(episode, target=target)["loss"]
 
     @torch.no_grad()
     def generate(self, z, num_samples=1):

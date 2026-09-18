@@ -71,7 +71,6 @@ def main():
     loader = DataLoader(Subset(dataset, train_indices), batch_size=training_cfg["batch_size"], shuffle=True)
     validation_loader = DataLoader(Subset(dataset, validation_indices), batch_size=training_cfg["batch_size"])
     model = build_latent_model(config).to(device)
-    beta = training_cfg["kl_beta"]
     optimizer = torch.optim.AdamW(model.parameters(), lr=training_cfg["learning_rate"])
 
     best_score = float("inf")
@@ -83,12 +82,12 @@ def main():
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     training_log = []
     for epoch in range(1, training_cfg["epochs"] + 1):
-        totals, count = dict(loss=0.0, diffusion_mse=0.0, kl=0.0), 0
+        totals, count = dict(loss=0.0, diffusion_mse=0.0), 0
         model.train()
         for episode in tqdm(loader, desc=f"epoch {epoch:03d}", leave=False):
             episode = episode.to(device)
             optimizer.zero_grad()
-            terms = model.loss_terms(episode, beta)
+            terms = model.loss_terms(episode)
             terms["loss"].backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
@@ -96,13 +95,13 @@ def main():
                 totals[name] += terms[name].item() * len(episode)
             count += len(episode)
         metrics = validate_episodes(model, validation_loader, device, dataset.mean, dataset.std,
-                                    beta, training_cfg["validation_samples"], training_cfg["validation_seed"])
+                                    training_cfg["validation_samples"], training_cfg["validation_seed"])
         score = metrics["loss"]
-        if not all(np.isfinite(metrics[k]) for k in ("loss", "diffusion_mse", "kl")):
+        if not all(np.isfinite(metrics[k]) for k in ("loss", "diffusion_mse")):
             raise RuntimeError("Non-finite validation loss.")
         print(f"epoch={epoch:03d} train_loss={totals['loss']/count:.5f} "
               f"validation_loss={score:.5f} diffusion={metrics['diffusion_mse']:.5f} "
-              f"kl={metrics['kl']:.5f} reconstruction_crps={metrics['reconstruction_crps_dbm']:.4f}")
+              f"reconstruction_crps={metrics['reconstruction_crps_dbm']:.4f}")
         # Save the actual minimum even if the improvement is smaller than min_delta.
         if score < best_score:
             best_score = score
