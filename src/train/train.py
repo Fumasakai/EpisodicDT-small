@@ -70,6 +70,16 @@ def main():
     print(f"training episodes: {len(train_indices)}, validation episodes: {len(validation_indices)}")
     loader = DataLoader(Subset(dataset, train_indices), batch_size=training_cfg["batch_size"], shuffle=True)
     validation_loader = DataLoader(Subset(dataset, validation_indices), batch_size=training_cfg["batch_size"])
+    generation_limit = training_cfg.get("validation_generation_max_episodes", 256)
+    if isinstance(generation_limit, bool) or not isinstance(generation_limit, int) or generation_limit < 1:
+        raise ValueError("validation_generation_max_episodes must be a positive integer.")
+    # Local RNG: selecting diagnostics must not advance the training RNG.
+    generation_indices = sorted(np.random.default_rng(training_cfg["validation_seed"]).choice(
+        validation_indices, size=min(generation_limit, len(validation_indices)), replace=False
+    ).tolist())
+    generation_loader = DataLoader(Subset(dataset, generation_indices),
+                                 batch_size=training_cfg["batch_size"])
+    print(f"generation validation episodes: {len(generation_indices)} (fixed subset)")
     model = build_latent_model(config).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=training_cfg["learning_rate"])
 
@@ -82,7 +92,7 @@ def main():
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     training_log = []
     for epoch in range(1, training_cfg["epochs"] + 1):
-        totals, count = dict(loss=0.0, diffusion_mse=0.0), 0
+        totals, count = dict(loss=0.0, diffusion_mse=0.0, delta_mse=0.0), 0
         model.train()
         for episode in tqdm(loader, desc=f"epoch {epoch:03d}", leave=False):
             episode = episode.to(device)
@@ -95,12 +105,14 @@ def main():
                 totals[name] += terms[name].item() * len(episode)
             count += len(episode)
         metrics = validate_episodes(model, validation_loader, device, dataset.mean, dataset.std,
-                                    training_cfg["validation_samples"], training_cfg["validation_seed"])
+                                    training_cfg["validation_samples"], training_cfg["validation_seed"],
+                                    generation_loader=generation_loader)
         score = metrics["loss"]
-        if not all(np.isfinite(metrics[k]) for k in ("loss", "diffusion_mse")):
+        if not all(np.isfinite(metrics[k]) for k in ("loss", "diffusion_mse", "delta_mse")):
             raise RuntimeError("Non-finite validation loss.")
         print(f"epoch={epoch:03d} train_loss={totals['loss']/count:.5f} "
               f"validation_loss={score:.5f} diffusion={metrics['diffusion_mse']:.5f} "
+              f"delta={metrics['delta_mse']:.5f} "
               f"reconstruction_crps={metrics['reconstruction_crps_dbm']:.4f}")
         # Save the actual minimum even if the improvement is smaller than min_delta.
         if score < best_score:
@@ -112,6 +124,7 @@ def main():
                 "model": model.state_dict(), "mean": dataset.mean, "std": dataset.std,
                 "config": config, "best_epoch": best_epoch,
                 "selection_metric": "validation_total_loss", "best_validation_metrics": best_metrics,
+                "validation_generation_indices": generation_indices,
                 "train_files": [str(path) for path in train_paths],
                 "evaluation_files": [str(path) for path in evaluation_paths],
             }, checkpoint_dir / "episodicdt.pt")

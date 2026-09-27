@@ -30,9 +30,10 @@ class TrainingWorkflowTests(unittest.TestCase):
                 'model': {'hidden_dim': 8, 'latent_dim': 4, 'transformer_heads': 2,
                           'transformer_layers': 1, 'dropout': 0.0},
                 'diffusion': {'timesteps': 4, 'denoiser': 'conv1d', 'conv_channels': 8, 'conv_blocks': 2},
-                'training': {'batch_size': 16, 'epochs': 5, 'learning_rate': 0.0, 'seed': 7,
+                'training': {'delta_loss_weight': 0.1, 'batch_size': 16, 'epochs': 5, 'learning_rate': 0.0, 'seed': 7,
                              'checkpoint_dir': str(root / 'checkpoints'), 'validation_fraction': 0.2,
                              'validation_samples': 4, 'validation_seed': 13,
+                             'validation_generation_max_episodes': 5,
                              'min_epochs': 2, 'early_stopping_patience': 1,
                              'early_stopping_min_delta': 0.001},
                 'evaluation': {'batch_size': 16,
@@ -50,6 +51,12 @@ class TrainingWorkflowTests(unittest.TestCase):
             # With lr=0 and fixed validation noise, epoch 2 cannot improve.
             self.assertEqual(len(logs), 2)
             self.assertEqual(checkpoint['best_epoch'], 1)
+            self.assertEqual(len(checkpoint['validation_generation_indices']), 5)
+            self.assertEqual(len(set(checkpoint['validation_generation_indices'])), 5)
+            self.assertTrue(all(i >= 96 for i in checkpoint['validation_generation_indices']))
+            for row in logs:
+                self.assertEqual(row['validation_loss_episodes'], 17)
+                self.assertEqual(row['validation_generation_episodes'], 5)
             self.assertEqual(checkpoint['model_format'], LatentEpisodeDiffusion.FORMAT)
             self.assertEqual(logs[0]['reconstruction_crps_dbm'], logs[1]['reconstruction_crps_dbm'])
             self.assertAlmostEqual(checkpoint['mean'], values[:96].mean().item(), places=4)
@@ -71,6 +78,7 @@ class TrainingWorkflowTests(unittest.TestCase):
             self.assertFalse((root / 'figures/episode_median_boxplot_by_step.png').exists())
             self.assertFalse((root / 'figures/episode_boxplot_by_step.png').exists())
             self.assertTrue((root / 'figures/episode_autocorrelation.png').is_file())
+            self.assertTrue((root / 'figures/episode_second_delta_distribution.png').is_file())
             self.assertTrue((root / 'figures/episode_mean_squared_change.png').is_file())
 
 

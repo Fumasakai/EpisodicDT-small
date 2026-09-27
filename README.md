@@ -13,7 +13,7 @@ zと拡散ノイズから新しいRSRPエピソード全体を生成します。
 ```
 
 μ・σの推定、潜在変数のサンプリング、KL正則化はありません。
-損失は全体系列のv予測MSEのみで、勾配はzを通してEncoderへ伝わります。
+損失は全体系列のv予測MSEと隣接変化量の補助MSEの重み付き和で、両方の勾配がzを通してEncoderへ伝わります。
 推論時は `model.eval()` を使い、同じ入力に対して同じzを得ます。
 学習時にはEncoderのdropoutが有効です。
 同じzからでも、拡散モデルのノイズを変えることで複数の系列を生成できます。
@@ -25,7 +25,7 @@ conda activate episodicdt
 # 未前処理の場合
 python -m src.data.prepare_sutd_5g
 python -m src.train.train --config configs/config.yaml
-python -m src.evaluation.evaluate --config configs/config.yaml --samples 32 --seed 12345
+python -m src.evaluation.evaluate --config configs/config.yaml --samples 32 --seed 12346
 ```
 
 設定は `configs/config.yaml`。`data.episode_length: 40` は全体のステップ数です。
@@ -37,8 +37,8 @@ python -m src.evaluation.evaluate --config configs/config.yaml --samples 32 --se
 
 ```bash
 python -m src.evaluation.generate \
-  --checkpoint results/checkpoints/direct_z_conv_episode_v3/episodicdt.pt \
-  --latents results/generated/direct_z_conv_generated_episodes.latents.pt \
+  --checkpoint results/checkpoints/direct_z_conv_delta_episode_v4/episodicdt.pt \
+  --latents results/generated/direct_z_conv_delta_generated_episodes.latents.pt \
   --output results/generated/from_direct_z.csv \
   --samples 16 --seed 42
 ```
@@ -60,14 +60,14 @@ rsrp_dbm = new_episodes * training_std + training_mean
 - 学習用CSVを時間順に学習・検証へ分割し、境界をまたぐ窓を除外します。
 - 標準化は検証を除いた学習区間の平均・標準偏差を使います。
 - 絶対RSRPを生成し、元系列の最終値を加算する処理はありません。
-- 検証ノイズを固定し、検証v予測MSEで保存モデルとEarly Stoppingを決めます。
-  ログの `loss` と `diffusion_mse` は同じ値です。
+- 検証ノイズを固定し、検証合計損失で保存モデルとEarly Stoppingを決めます。
+  ログの `loss = diffusion_mse + delta_loss_weight * delta_mse` です。
 - 評価は再生成CRPS・MAE・90%区間被覆率・区間幅と、固定z内の生成標準偏差です。
   元系列全体をEncoderへ入力する条件付き再生成であり、未来予測精度ではありません。
 - 危険例生成率や危険閾値表示は含みません。標準学習は通常・危険の全窓を対象とします。
 
-チェックポイントは `results/checkpoints/direct_z_conv_episode_v3/`、図は
-`results/figures/direct_z_conv_episode_v3/` に保存します。
+チェックポイントは `results/checkpoints/direct_z_conv_delta_episode_v4/`、図は
+`results/figures/direct_z_conv_delta_episode_v4/` に保存します。
 生成CSVの列は `episode_id, sample_id, episode_step, rsrp_generated_dbm`。
 元系列CSV、潜在変数ファイル、評価JSONも保存します。
 
@@ -139,3 +139,38 @@ Encoder出力とzの一致、推論時の決定性、Encoderへの勾配、zの�
 定数系列は自己相関が未定義なので除外し、除外数を図に表示します。
 平均二乗変化量は各時間差kについて `(x[i+k]-x[i])**2` の系列内平均です。
 重なる窓から切り出した元系列は独立標本ではありません。
+
+## 隣接変化量の補助損失
+
+標準設定は `training.delta_loss_weight: 0.1` です。0で従来のv予測損失のみになります。
+学習中のノイズ付き系列とv予測から `x_hat = sqrt(alpha_bar)*x_t - sqrt(1-alpha_bar)*v_hat` を計算し、
+`delta_mse = mean((diff(x_hat)-diff(target))**2)` を加えます。差分は各系列内の時間方向です。
+標準化した値で計算するため、損失の単位はdB²ではありません。1ステップの系列では差分損失を0とします。
+生成を100回繰り返す追加処理はなく、復元値から直接計算します。
+学習・検証のログには補助損失も記録し、モデル選択と早期終了には合計損失を使います。
+
+補助損失ありの標準設定は `direct_z_conv_delta_episode_v4` に保存します。
+既存v3の評価には `python -m src.evaluation.evaluate --config configs/conv_baseline.yaml` を使えます。
+モデル構造は同じなのでチェックポイント形式識別子はv3のままです。
+旧チェックポイントに重み設定がない場合は0として読み込みます。
+補助損失の効果を見るには再学習が必要です。0.1は比較実験の初期値で、改善を保証するものではありません。
+
+## 学習中の生成評価の軽量化
+
+`training.validation_generation_max_episodes: 256` により、CRPSなどの生成評価だけを
+固定した検証エピソード最大256本に限定します。検証seedを使って学習開始時に重複なしで選び、
+毎エポック同じ対象を使います。対象が256本以下なら全本数を使います。
+検証損失は全検証エピソードで計算し、モデル選択・早期終了の基準を維持します。
+生成本数（32本）、評価頻度（毎エポック）、学習終了後の評価コマンドの対象範囲は変更しません。
+設定省略時も上限256本です。正の整数を指定してください。
+ログの `validation_loss_episodes` と `validation_generation_episodes` で対象本数を確認できます。
+選んだデータセット内の窓インデックスはチェックポイントの `validation_generation_indices` に保存します。
+
+## 二階差分の分布
+
+`episode_second_delta_distribution.png` は、各系列内で
+`x[t+2] - 2*x[t+1] + x[t]` を計算し、元系列（緑）と個々の生成系列（青）の分布を比較します。
+全評価エピソード・全生成サンプルを使い、系列境界をまたぎません。中央値系列は使いません。
+共通のビンで確率密度に正規化し、外れ値を含めた全範囲を表示します。
+横軸の単位はdBで、時間間隔で割った二階微分ではありません。
+絶対値が大きいほど傾きの切り替わりが大きいことを示します。3ステップ未満では計算できない旨を表示します。

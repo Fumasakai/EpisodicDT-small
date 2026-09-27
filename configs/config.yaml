@@ -21,19 +21,21 @@ training:
   batch_size: 64
   epochs: 150
   learning_rate: 0.0001
+  delta_loss_weight: 0.1  # auxiliary MSE on normalized adjacent differences
   seed: 42
-  checkpoint_dir: results/checkpoints/direct_z_conv_episode_v3
+  checkpoint_dir: results/checkpoints/direct_z_conv_delta_episode_v4
   validation_samples: 32
-  validation_seed: 12345
+  validation_generation_max_episodes: 256
+  validation_seed: 12346
   validation_fraction: 0.2
   min_epochs: 30
   early_stopping_patience: 15
   early_stopping_min_delta: 0.001  # total validation loss improvement
 
 evaluation:
-  figure_dir: results/figures/direct_z_conv_episode_v3
-  generated_csv: results/generated/direct_z_conv_generated_episodes.csv
-  actual_csv: results/generated/direct_z_conv_source_episodes.csv
-  boxplot_path: results/figures/direct_z_conv_episode_v3/episode_boxplot.png
+  figure_dir: results/figures/direct_z_conv_delta_episode_v4
+  generated_csv: results/generated/direct_z_conv_delta_generated_episodes.csv
+  actual_csv: results/generated/direct_z_conv_delta_source_episodes.csv
+  boxplot_path: results/figures/direct_z_conv_delta_episode_v4/episode_boxplot.png
   batch_size: 64
-  delta_distribution_path: results/figures/direct_z_conv_episode_v3/episode_delta_distribution.png
+  delta_distribution_path: results/figures/direct_z_conv_delta_episode_v4/episode_delta_distribution.png

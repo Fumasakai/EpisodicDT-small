@@ -15,3 +15,5 @@ checkpoints/
 .env
 
 *.csv
+
+docs/*

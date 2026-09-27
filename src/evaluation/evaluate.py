@@ -80,18 +80,20 @@ def save_boxplot(generated, actual, output_path):
     plt.close(figure)
 
 
-def save_delta_distribution(generated, actual, output_path):
-    """Histogram of within-episode adjacent differences; never cross episode boundaries."""
+def save_delta_distribution(generated, actual, output_path, order=1):
+    """Within-episode first/second differences; never cross episode boundaries."""
+    if order not in (1, 2):
+        raise ValueError("Difference order must be 1 or 2.")
     if generated.ndim != 3 or actual.shape != (generated.shape[0], generated.shape[2]):
         raise ValueError("Expected generated [N,S,L] and actual [N,L].")
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     figure, axis = plt.subplots(figsize=(7, 4.8))
-    if actual.shape[1] < 2:
-        axis.text(0.5, 0.5, "At least two episode steps required", ha="center", transform=axis.transAxes)
+    if actual.shape[1] <= order:
+        axis.text(0.5, 0.5, f"At least {order + 1} episode steps required", ha="center", transform=axis.transAxes)
     else:
-        source_delta = np.diff(actual, axis=-1).ravel()
-        sample_delta = np.diff(generated, axis=-1).ravel()
+        source_delta = np.diff(actual, n=order, axis=-1).ravel()
+        sample_delta = np.diff(generated, n=order, axis=-1).ravel()
         low = min(source_delta.min(), sample_delta.min())
         high = max(source_delta.max(), sample_delta.max())
         extent = max(abs(low), abs(high), 1.0)
@@ -105,8 +107,10 @@ def save_delta_distribution(generated, actual, output_path):
         axis.axvline(0, color="gray", linestyle=":", linewidth=1)
         axis.legend(fontsize=8)
         axis.grid(alpha=0.25)
-    axis.set_title("Within-episode RSRP changes: individual trajectories")
-    axis.set_xlabel("Adjacent RSRP change: x[t+1] - x[t] (dB)")
+    axis.set_title("Within-episode RSRP changes: individual trajectories" if order == 1
+                   else "Within-episode second differences: individual trajectories")
+    axis.set_xlabel("Adjacent RSRP change: x[t+1] - x[t] (dB)" if order == 1
+                    else "Second difference: x[t+2] - 2x[t+1] + x[t] (dB)")
     axis.set_ylabel("Probability density (1/dB)")
     figure.text(0.5, 0.015,
                 "Same bins and unit-area normalization; all values included.",
@@ -186,6 +190,7 @@ def main():
     save_boxplot(generated, actual, dest)
     delta_path = Path(cfg.get("delta_distribution_path", out/"episode_delta_distribution.png"))
     save_delta_distribution(generated, actual, delta_path)
+    save_delta_distribution(generated, actual, out/"episode_second_delta_distribution.png", order=2)
     save_temporal_comparisons(generated, actual, out)
     save_small_multiples(generated, actual, out/"episodes.png", seed=args.seed)
     print(f"Saved full generated episodes: {cfg['generated_csv']}")

@@ -19,6 +19,7 @@
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,positioning}
 \usepackage[hidelinks]{hyperref}
+\pdfstringdefDisableCommands{\def\mu{mu}\def\sigma{sigma}}
 \newcolumntype{Y}{>{\raggedright\arraybackslash}X}
 \setlength{\parskip}{3pt}
 \renewcommand{\arraystretch}{1.18}
@@ -27,7 +28,7 @@
 \begin{center}
 {\LARGE\bfseries 潜在変数からのRSRPエピソード生成}\\[3mm]
 {\large EpisodicDT-small：プログラム説明資料}\\[2mm]
-{\small 対象形式：\texttt{direct\_z\_conv\_episode\_v3} \quad 作成日：2026年9月18日}
+{\small 対象実験：\texttt{direct\_z\_conv\_delta\_episode\_v4} \quad 更新日：2026年9月23日}
 \end{center}
 
 \section{目的と全体構成}
@@ -90,7 +91,7 @@ $B$はバッチ内のエピソード数である。現在は通常・危険の�
 元エピソードごとの平均値や最終値を生成結果へ加算する処理はない。
 最終評価には別途指定された評価用ファイルを用いる。
 
-\subsection{Encoder：全体系列から直接$z$を得る}
+\subsection{Encoder：全体系列から直接zを得る}
 \begin{center}\small
 \begin{tabularx}{\linewidth}{@{}lYY@{}}\toprule
 処理 & 内容 & 標準のテンソル形状\\\midrule
@@ -109,9 +110,10 @@ $\mu$・$\sigma$の推定、潜在変数の確率的サンプリング、KL正�
 学習時にはdropout（設定値0.05）を用いるが、推論時に\texttt{model.eval()}とすると、
 同じ入力から同じ$z$を得る。各潜在次元に遮蔽量などの物理的意味を指定してはいない。
 
-\subsection{拡散モデル：$(x_t,t,z)$から$v$を予測する}
-拡散器のクラス内では\texttt{NoisePredictor}という名称を使っているが、
-現在の出力対象はノイズそのものではなく速度パラメータ$v$である。
+\subsection{拡散モデル：ノイズ付き系列・拡散時刻・zからvを予測}
+現在の予測器は\texttt{TemporalConvPredictor}であり、
+出力対象はノイズそのものではなく拡散モデルのパラメータ$v$である。
+この$v$はRSRPの時間差分や移動速度を意味しない。
 ノイズ付き系列を$[B,1,L]$へ変換し、位置座標（$-1$から$1$）を追加する。
 1$\times$1畳み込みで64チャネルへ変換し、4個の時間方向残差ブロックへ渡す。
 各ブロックはカーネル幅3の畳み込みを2回用い、dilationを順に1、2、4、8とする。
@@ -119,7 +121,63 @@ $z$と拡散ステップの埋込みを各ブロックにスケール・シフ�
 GroupNorm・SiLU・1$\times$1畳み込みで$[B,L,1]$の$v$を出力する。
 畳み込み経路の受容野は61ステップであり、パディングによって系列長を保つ。
 全体生成用なので因果マスクは用いない。Encoderは引き続き同時学習する。
+各ブロックの残差接続は$(h+F(h,z,t))/\sqrt{2}$である。
+ここで$h$は各時点の64次元特徴であり、元RSRPを出力へ直接足してはいない。
+条件は正規化した特徴に$(1+a(z,t))$を掛け、$b(z,t)$を足して反映する。
+GroupNormはチャネルと時間方向を含めて正規化するため、61ステップは畳み込み経路だけの受容野である。
 旧MLP方式は比較用設定\texttt{configs/mlp\_baseline.yaml}から利用できる。
+
+\newpage
+\section{追加解説：時間方向の畳み込み生成器}
+\subsection{MLPから変更した部分と入出力}
+変更対象は拡散モデルの$v$予測器であり、Transformer Encoderは維持する。
+旧MLPは系列をまとめて全結合層へ入力したが、Conv1dは近傍時点に同じ学習重みを適用する。
+これにより、異なる位置に現れる局所的な変化を共通の処理で扱える。
+時系列の位置$i$と、ノイズ除去の段階$t$は別の変数である。
+
+\begin{center}
+\begin{tikzpicture}[>=Stealth,font=\footnotesize,node distance=5mm,
+ box/.style={draw,rounded corners,align=center,text width=42mm,minimum height=10mm}]
+\node[box] (input) {ノイズ付き系列 $[B,L,1]$\\転置・位置座標を追加 $[B,2,L]$};
+\node[box,right=of input] (proj) {1$\times$1 Conv：2$\to$64\\特徴 $h:[B,64,L]$};
+\node[box,right=of proj] (blocks) {残差ブロック$\times$4\\$d=1,2,4,8$};
+\node[box,below=7mm of proj] (cond) {$[z,\tau]$：33次元$\to$64次元\\Linear--SiLU--Linear};
+\node[box,below=7mm of blocks] (output) {GroupNorm--SiLU--1$\times$1 Conv\\64$\to$1、転置して $\hat v:[B,L,1]$};
+\draw[->] (input)--(proj); \draw[->] (proj)--(blocks);
+\draw[->] (cond.north east)--node[left]{$c$}(blocks.south west);
+\draw[->] (blocks)--(output);
+\end{tikzpicture}
+\end{center}
+位置座標は先頭$-1$から末尾$1$までの固定値で、純粋なノイズからでも位置を区別する手掛かりとなる。
+$h_i$は各時点の64個の内部特徴であり、RSRPそのものではない。
+1$\times$1 Convは同じ時点のチャネルを混合し、時間方向の混合は後続の幅3のConvで行う。
+
+\subsection{畳み込みが参照する時点}
+幅3、参照間隔$d$の畳み込みは、出力チャネル$o$について次の計算を行う。
+\[
+ u_{o,i}=b_o+\sum_{c=1}^{64}\sum_{j=-1}^{1}W_{o,c,j}\,h_{c,i+jd}.
+\]
+$d=1$なら$i-1,i,i+1$、$d=4$なら$i-4,i,i+4$を参照する。
+重み$W$とバイアス$b$は学習され、時間位置によらず共有する。
+両端に幅$d$のゼロパディングを加え、長さ$L$を維持する。
+各ブロックに幅3のConvが2回あるため、畳み込み経路の受容野は
+$1+4(1+2+4+8)=61$ステップである。
+GroupNormは各系列のチャネル・時間全体を参照するため、これはモデル全体の依存範囲の上限ではない。
+
+\subsection{条件付けと残差接続の計算}
+コードの拡散添字を$q=0,\ldots,T-1$とすると、入力する時刻は$\tau=q/(T-1)$である。
+$c=\mathrm{MLP}([z,\tau])$を共通条件とし、各ブロックが固有の線形層で
+$a,b\in\mathbb R^{64}$を作る。$a,b$は時間方向へ同じ値を配る。
+\begin{align*}
+ u&=\mathrm{Conv}_{d,1}\bigl(\mathrm{SiLU}(\mathrm{GN}_1(h))\bigr),\\
+ \widetilde u&=(1+a(c))\odot\mathrm{GN}_2(u)+b(c),\\
+ h_{\rm out}&=\bigl[h+\mathrm{Conv}_{d,2}(\mathrm{SiLU}(\widetilde u))\bigr]/\sqrt{2}.
+\end{align*}
+GNは\texttt{GroupNorm(1,64)}、SiLUは非線形関数である。
+残差接続は入力特徴を後段へ伝え、$1/\sqrt2$は加算後の大きさの増加を抑える係数である。
+生成時はこの予測器を100回呼び出して逆拡散するが、学習時は各系列で選んだ1段階を処理する。
+畳み込みは固定の平滑化ではなく、鋭さの再現も保証しないため、差分分布で評価する。
+実装は\texttt{TemporalConvPredictor}と\texttt{TemporalResidualBlock}である。
 
 \newpage
 \section{学習・生成アルゴリズム}
@@ -131,11 +189,21 @@ $T=100$で、累積信号係数$\bar\alpha_T=0$になるようノイズスケジ
  z&=E_\phi(x_0),\\
  x_t&=\sqrt{\bar\alpha_t}\,x_0+\sqrt{1-\bar\alpha_t}\,\epsilon,\\
  v_t&=\sqrt{\bar\alpha_t}\,\epsilon-\sqrt{1-\bar\alpha_t}\,x_0,\\
- \mathcal{L}(\phi,\theta)&=
+ \mathcal{L}_v(\phi,\theta)&=
  \mathbb{E}_{x_0,t,\epsilon}\!\left[
  \frac1L\left\|\hat v_\theta(x_t,t,E_\phi(x_0))-v_t\right\|_2^2\right].
 \end{align}
-\textbf{損失は$v$予測MSEのみ}である。正解の$z$を与える教師データはなく、
+復元系列を$\hat x_0=\sqrt{\bar\alpha_t}x_t-\sqrt{1-\bar\alpha_t}\hat v$として、
+隣接差分$\Delta x_i=x_{i+1}-x_i$の補助損失を加える。
+\[
+\mathcal L=\mathcal L_v+\lambda_\Delta\mathcal L_\Delta,\qquad
+\mathcal L_\Delta=\mathbb E\left[\frac{1}{L-1}\sum_{i=1}^{L-1}(\Delta\hat x_{0,i}-\Delta x_{0,i})^2\right].
+\]
+標準設定は$\lambda_\Delta=0.1$で、標準化した系列で計算する。
+追加の反復生成は不要で、検証の合計損失でモデルを選ぶ。
+損失は無次元の標準化空間で計算し、$\lambda_\Delta=0$で従来の$v$損失のみとなる。
+二階差分は評価用であり、現在の学習損失には含めない。
+正解の$z$を与える教師データはなく、
 生成に役立つ表現を学ぶよう、$z$を通じてEncoderにも勾配を伝える。
 現在は入力と生成対象が同じエピソードである。
 モデルAPIには同じ環境条件から得た別エピソードを\texttt{target}として渡す機能もあるが、
@@ -147,13 +215,18 @@ $T=100$で、累積信号係数$\bar\alpha_T=0$になるようノイズスケジ
 最適化 & AdamW、学習率$10^{-4}$、バッチサイズ64。\\
 安定化 & 勾配ノルムの上限1.0。\\
 学習回数 & 最大150エポック、最低30エポック。\\
-モデル選択 & 検証$v$予測MSEの実際の最小値を保存。\\
+モデル選択 & 検証合計損失の実際の最小値を保存。\\
 Early Stopping & 0.001を超える検証損失改善が15エポック連続でなければ、最低回数以降に終了。\\
 再現性 & 学習seedは42。検証seedは12345で毎回固定し、学習側の乱数状態を保存・復元。\\\bottomrule
 \end{tabularx}\end{center}
-ログの\texttt{loss}と\texttt{diffusion\_mse}は同じ値である。
+ログには合計損失\texttt{loss}、\texttt{diffusion\_mse}、\texttt{delta\_mse}を記録する。
 CRPSは診断用に記録するが、現行のモデル選択には使っていない。
+生成を伴う診断は、検証seedで重複なしに選んだ固定の最大256エピソードに限定する。
+検証損失は全検証エピソードで計算する。生成本数は各32本、診断頻度は毎エポックのままである。
+独立した評価コマンドでは全評価エピソードを使用する。
 
+\newpage
+\section{生成処理と評価指標}
 \subsection{生成時の計算}
 元エピソードを一度Encoderへ入力して$z$を得る。
 各生成例の$x_T$は独立な標準正規ノイズから開始し、$z$を固定して逆拡散する。
@@ -167,7 +240,7 @@ $\xi_t$は新しい標準正規ノイズである。最後のステップでは�
 完了後、学習時の統計量を用いてdBmへ戻す。
 初期ノイズと途中のノイズが異なるため、同じ$z$から複数の系列が得られる。
 
-\subsection{APIと保存済み$z$の利用}
+\subsection{APIと保存済みzの利用}
 \begin{verbatim}
 model.eval()
 z = model.encode(normalized_episode)         # [B,32]
@@ -178,8 +251,7 @@ rsrp_dbm = x * training_std + training_mean
 モデルと潜在ファイルの対応はチェックポイントのSHA-256で照合する。
 旧確率潜在モデルの重み・潜在ファイルとは非互換である。
 
-\newpage
-\section{評価方法・出力・利用手順}
+
 \subsection{評価指標の定義}
 元系列の値を$y_{n\ell}$、生成値を$g_{ns\ell}$とし、
 $n$をエピソード、$s=1,\ldots,S$を生成例、$\ell$をステップとする。
@@ -202,23 +274,78 @@ $n$をエピソード、$s=1,\ldots,S$を生成例、$\ell$をステップとす
 独立した未来予測の精度ではない。}生成のばらつきが大きければよいわけではなく、
 過大な裾や区間幅にも注意する。危険例生成率は現段階の指標に含まない。
 
-\subsection{図と出力ファイル}
-図と指標の保存先は\path{results/figures/direct_z_conv_episode_v3/}である。
+\newpage
+\section{時間的特徴の評価とグラフ}
+再生成の平均誤差だけでは、個々の生成系列が持つ揺れや鋭い変化を評価できない。
+以下は逆標準化した各系列$r_1,\ldots,r_L$について計算する。
+元系列・生成系列とも全評価エピソードを用い、生成系列の中央値に置き換えない。
 
-代表系列の図\texttt{episodes.png}、全値の箱ひげ図\texttt{episode\_boxplot.png}、
-指標\texttt{episode\_metrics.json}を保存する。
-箱は25--75\%点、中央線は中央値、ひげは1.5 IQR以内の最遠点であり、外れ値は非表示である。
-ひげを最大・最小値と解釈しない。全値の箱ひげ図では生成側は元データの$S$倍の標本数を持つ。
-系列比較図では緑の折れ線が元系列、青の各折れ線が個々の生成系列である。
-元エピソード1本を無作為に選び、対応する生成系列から重複なしで8本を選ぶ。
-各パネルに同じ元系列と生成系列1本を表示する。選択は評価の乱数seedで再現できる。
-生成本数が8本未満の場合は利用可能な全本数を表示する。
-評価JSONのMAEは生成平均と元系列との誤差である。
+\subsection{一階・二階差分の分布}
+\[
+ \Delta r_i=r_{i+1}-r_i,\qquad
+ \Delta^2r_i=r_{i+2}-2r_{i+1}+r_i.
+\]
+一階差分は隣接時点の上昇・下降の大きさ、二階差分は傾きの切り替わりを表す。
+各系列内で計算し、境界をまたぐ差分は含めない。単位はいずれもdBで、時間刻みで割った微分ではない。
+共通の100ビンに全値を集計し、面積1の確率密度として比較する。外れ値は除外しない。
+分布が一致しても変化の順序や発生位置が同じとは限らない。
+\begin{itemize}
+\item \path{episode_delta_distribution.png}：一階差分。元系列$N(L-1)$個、生成系列$NS(L-1)$個。
+\item \path{episode_second_delta_distribution.png}：二階差分。元系列$N(L-2)$個、生成系列$NS(L-2)$個。
+\end{itemize}
+緑が元系列、青が生成系列である。凡例には個数と標準偏差を表示する。
 
+\subsection{自己相関と平均二乗変化量}
+自己相関は各系列の平均$\bar r$を引き、全系列の偏差平方和を分母に固定する。
+\[
+ A(k)=\frac{\sum_{i=1}^{L-k}(r_i-\bar r)(r_{i+k}-\bar r)}
+ {\sum_{i=1}^{L}(r_i-\bar r)^2},\qquad
+ D(k)=\frac1{L-k}\sum_{i=1}^{L-k}(r_{i+k}-r_i)^2.
+\]
+$A(k)$は時間的な持続性、$D(k)$は時間差ごとの変動の大きさを表す。
+$k=0,\ldots,\lfloor L/2\rfloor$とし、標準設定では0--20ステップを表示する。
+$D(k)$の単位はdB$^2$で、元系列と生成系列の点ごとのMSEとは異なる。
+\begin{itemize}
+\item \path{episode_autocorrelation.png}：自己相関$A(k)$。定数系列は未定義として除外し、その数を明記する。
+\item \path{episode_mean_squared_change.png}：平均二乗変化量$D(k)$。定数系列も含める。
+\end{itemize}
+各エピソードで計算した後、線で平均、帯で系列間の10--90\%点を表示する。
+帯は平均の信頼区間ではない。窓が重なる元系列や同じ$z$の生成例は独立標本ではない。
+自己相関は振幅を正規化するため、$D(k)$や差分分布と併せて読む。
 
-生成CSVの列は\texttt{episode\_id, sample\_id, episode\_step, rsrp\_generated\_dbm}。
-元系列CSV、$z$と元ファイル・窓開始位置を含む潜在ファイルも保存する。
-チェックポイントには重み、設定、標準化統計量、最良エポックなどを保存する。
+\subsection{元系列と生成例の折れ線比較}
+\path{episodes.png}は、元エピソード1本を無作為に選び、対応する生成例から重複なしに8本を選ぶ。
+2列$\times$4行の各パネルに同じ元系列（緑）と生成例1本（青）を重ねる。
+選択は評価seedで再現でき、生成本数が8未満の場合は全本数を表示する。
+この図は1つの潜在状態についての比較であり、全体の代表性を保証しない。
+\path{episode_boxplot.png}は元・生成の全値の箱ひげ図である。
+箱は25--75\%点、線は中央値、ひげは1.5 IQR以内の最遠点であり、外れ値は非表示である。
+ひげを最大・最小値と解釈しない。ステップ別箱ひげ図と生成中央値の箱ひげ図は出力しない。
+
+\newpage
+\section{保存物・実行手順・研究上の位置付け}
+\subsection{ファイル入出力}
+\begin{center}\small
+\begin{tabularx}{\linewidth}{@{}lY@{}}\toprule
+保存物 & 内容\\\midrule
+生成CSV & \texttt{episode\_id, sample\_id, episode\_step, rsrp\_generated\_dbm}。1行が1生成例の1時点。\\
+元系列CSV & \texttt{episode\_id, episode\_step, rsrp\_actual\_dbm}。\\
+潜在ファイル & CPU上の$z$、元CSV一覧、窓の位置、seed、モデル形式、チェックポイントのSHA-256。\\
+チェックポイント & モデル重み、設定、学習の標準化統計量、最良エポック、検証指標、固定検証部分集合のインデックス。\\
+学習ログ & \texttt{training\_metrics.json}。各エポックの学習・検証損失、生成指標、評価対象本数。\\
+評価JSON & \texttt{episode\_metrics.json}。再生成指標とステップ別統計。\\\bottomrule
+\end{tabularx}\end{center}
+標準の保存先は次のとおりである。
+\begin{quote}\small
+図・指標：\\
+\path{results/figures/direct_z_conv_delta_episode_v4/}\\
+重み：\\
+\path{results/checkpoints/direct_z_conv_delta_episode_v4/episodicdt.pt}
+\end{quote}
+生成CSV等は\path{results/generated/}に保存する。
+実験名はv4だがモデル構造はv3と同じなので、内部の形式識別子は変更していない。
+識別子は\texttt{direct\_z\_conv\_episode\_v3}である。
+旧設定で差分損失の重みが省略されていれば0として扱う。
 
 \subsection{実行方法とコードの対応}
 プロジェクト\texttt{EpisodicDT-small}直下で実行する。
@@ -233,11 +360,20 @@ python -m src.evaluation.generate --checkpoint MODEL.pt \
 \texttt{src/data/dataset.py}がデータ、\texttt{src/models/episodic\_diffusion.py}がモデル、
 \texttt{src/train/}が学習・検証、\texttt{src/evaluation/}が評価・再生成を担当する。
 設定は\texttt{configs/config.yaml}で管理する。
+学習・評価・保存済み$z$からの生成はCUDAが利用可能ならGPUを使い、それ以外はCPUを使う。
+評価結果はバッチごとにCPUへ戻して集計・保存する。
+学習中の生成評価のみ最大256本に限定し、評価コマンドは全評価窓を対象にする。
 
 \subsection{現在の限界と研究への位置付け}
 小さい再生成誤差だけでは、元データの記憶やコピーを排除できない。
-潜在変数の交換実験、最近傍系列との比較、時間構造・分位点の比較が今後必要になる。
+潜在変数の交換実験、最近傍系列との比較、時間構造・分位点の評価を合わせて行う必要がある。
 物理的な潜在状態との対応や生成例の実現可能性も未検証である。
 最終的には潜在表現からシミュレータの環境条件を生成し、制約と実測整合性を確認した上で、
 そのシナリオを用いた制御AI学習の効果を独立したシミュレーション条件で評価する。
+
+\subsection{Overleafでのコンパイル}
+同梱ZIPを新規プロジェクトとしてアップロードし、主ファイルを\texttt{main.tex}、
+コンパイラを\textbf{XeLaTeX}に設定する。構造図はTikZで描くため外部画像は不要である。
+日本語フォントはNoto CJKがあれば使用し、なければTeX Liveの原ノ味フォントを使用する。
+pdfLaTeXは使用しない。
 \end{document}

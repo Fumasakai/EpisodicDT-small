@@ -68,15 +68,16 @@ def validate(model, loader, device, mean, std, num_samples=32, seed=12345):
 
 
 @torch.no_grad()
-def validate_episodes(model, loader, device, mean, std, num_samples=32, seed=12345):
-    """Conditional reconstruction diagnostics, NOT independent future forecasts."""
+def validate_episodes(model, loader, device, mean, std, num_samples=32, seed=12345,
+                      generation_loader=None):
+    """Full-loader loss; optional fixed subset for reconstruction diagnostics."""
     was_training = model.training
     devices = list(range(torch.cuda.device_count())) if torch.cuda.is_available() else []
     try:
         model.eval()
         with torch.random.fork_rng(devices=devices):
             torch.manual_seed(seed)
-            totals = dict(loss=0.0, diffusion_mse=0.0)
+            totals = dict(loss=0.0, diffusion_mse=0.0, delta_mse=0.0)
             count = 0
             for episode in loader:
                 episode = episode.to(device)
@@ -86,7 +87,7 @@ def validate_episodes(model, loader, device, mean, std, num_samples=32, seed=123
                 count += len(episode)
             torch.manual_seed(seed + 1)
             generated, observed = [], []
-            for episode in loader:
+            for episode in (loader if generation_loader is None else generation_loader):
                 z = model.encode(episode.to(device))
                 generated.append(model.generate(z, num_samples)[..., 0].cpu())
                 observed.append(episode[..., 0])
@@ -95,6 +96,8 @@ def validate_episodes(model, loader, device, mean, std, num_samples=32, seed=123
             # Explicit names prevent reconstruction scores being mistaken for forecasts.
             result = {"reconstruction_" + k: v for k, v in metrics.items()}
             result.update({name: value / count for name, value in totals.items()})
+            result["validation_loss_episodes"] = count
+            result["validation_generation_episodes"] = sum(len(x) for x in observed)
             return result
     finally:
         model.train(was_training)

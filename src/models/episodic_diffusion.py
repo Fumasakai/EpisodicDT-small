@@ -1,3 +1,4 @@
+import math
 import torch
 from torch import nn
 
@@ -203,7 +204,10 @@ class LatentEpisodeDiffusion(EpisodicDiffusion):
 
     def __init__(self, input_dim, episode_length, hidden_dim, latent_dim, timesteps,
                  transformer_heads=4, transformer_layers=2, dropout=0.1,
-                 denoiser="conv1d", conv_channels=64, conv_blocks=4):
+                 denoiser="conv1d", conv_channels=64, conv_blocks=4, delta_loss_weight=0.0):
+        if not math.isfinite(delta_loss_weight) or delta_loss_weight < 0:
+            raise ValueError("delta_loss_weight must be finite and nonnegative.")
+        self.delta_loss_weight = float(delta_loss_weight)
         if episode_length < 1 or latent_dim < 1 or hidden_dim % 2:
             raise ValueError("Positive episode/latent lengths and even hidden_dim required.")
         super().__init__(input_dim, episode_length, hidden_dim, latent_dim, timesteps,
@@ -226,7 +230,7 @@ class LatentEpisodeDiffusion(EpisodicDiffusion):
         return self.encoder(episode)
 
     def loss_terms(self, episode, target=None):
-        """Mean full-episode v MSE; gradients flow directly through z.
+        """v MSE plus reconstructed adjacent-difference MSE; both train z.
 
         Optional target must share the source's environment conditions; ordinary
         unpaired logs use the source episode itself as the target.
@@ -242,7 +246,11 @@ class LatentEpisodeDiffusion(EpisodicDiffusion):
         predicted = self.noise_predictor(noisy, steps / (self.timesteps - 1), z)
         velocity = alpha.sqrt() * noise - (1 - alpha).sqrt() * clean
         diffusion = nn.functional.mse_loss(predicted, velocity)
-        return {"loss": diffusion, "diffusion_mse": diffusion}
+        reconstructed = alpha.sqrt() * noisy - (1 - alpha).sqrt() * predicted
+        delta = (nn.functional.mse_loss(reconstructed.diff(dim=1), clean.diff(dim=1))
+                 if self.episode_length > 1 else reconstructed.sum() * 0)
+        return {"loss": diffusion + self.delta_loss_weight * delta,
+                "diffusion_mse": diffusion, "delta_mse": delta}
 
     def loss(self, episode, target=None):
         return self.loss_terms(episode, target=target)["loss"]
@@ -284,4 +292,5 @@ def build_latent_model(config):
         denoiser=config["diffusion"].get("denoiser", "mlp"),
         conv_channels=config["diffusion"].get("conv_channels", 64),
         conv_blocks=config["diffusion"].get("conv_blocks", 4),
+        delta_loss_weight=config.get("training", {}).get("delta_loss_weight", 0.0),
     )

@@ -69,6 +69,25 @@ class LatentEpisodeTests(unittest.TestCase):
         self.assertEqual(a,b)
         self.assertIn('reconstruction_crps_dbm',a)
 
+    def test_subset_only_limits_generation_and_preserves_loss(self):
+        loader = DataLoader(self.episode, batch_size=2)
+        subset = DataLoader(self.episode[[1]], batch_size=2)
+        full = validate_episodes(self.model, loader, 'cpu', -90, 5, 3, 7)
+        before = torch.random.get_rng_state().clone()
+        with patch.object(self.model, 'generate', wraps=self.model.generate) as generate:
+            limited = validate_episodes(self.model, loader, 'cpu', -90, 5, 3, 7,
+                                        generation_loader=subset)
+        self.assertEqual(generate.call_count, 1)
+        self.assertEqual(generate.call_args.args[0].shape[0], 1)
+        self.assertTrue(torch.equal(before, torch.random.get_rng_state()))
+        self.assertTrue(self.model.training)
+        for key in ('loss', 'diffusion_mse', 'delta_mse'):
+            self.assertEqual(full[key], limited[key])
+        self.assertEqual(limited['validation_loss_episodes'], 3)
+        self.assertEqual(limited['validation_generation_episodes'], 1)
+        self.assertEqual(limited, validate_episodes(self.model, loader, 'cpu', -90, 5, 3, 7,
+                                                   generation_loader=subset))
+
 
 if __name__ == '__main__':
     unittest.main()
