@@ -1,0 +1,38 @@
+# Evaluation only: ns-3 checkpoint on SUTD data; normalization from checkpoint.
+data:
+  input_dim: 1
+  episode_length: 40
+  train_path: /home/f-sakai/projects/EpisodicDT-small/data/processed/ns3_batches/diverse_ho_dt05_mobility_v2/processed/train
+  evaluation_path: /home/f-sakai/projects/EpisodicDT-small/data/processed/sutd_5g/evaluation
+model:
+  hidden_dim: 128
+  latent_dim: 32
+  transformer_heads: 4
+  transformer_layers: 3
+  dropout: 0.05
+diffusion:
+  denoiser: conv1d
+  conv_channels: 64
+  conv_blocks: 4
+  timesteps: 100
+training:
+  batch_size: 64
+  epochs: 150
+  learning_rate: 0.0001
+  delta_loss_weight: 0.1
+  seed: 42
+  checkpoint_dir: /home/f-sakai/projects/EpisodicDT-small/data/processed/ns3_batches/diverse_ho_dt05_mobility_v2/model/checkpoints
+  validation_samples: 32
+  validation_generation_max_episodes: 256
+  validation_seed: 12346
+  validation_fraction: 0.2
+  min_epochs: 30
+  early_stopping_patience: 15
+  early_stopping_min_delta: 0.001
+evaluation:
+  figure_dir: /home/f-sakai/projects/EpisodicDT-small/results/ns3_mobility_v2_on_sutd_5g/figures
+  generated_csv: /home/f-sakai/projects/EpisodicDT-small/results/ns3_mobility_v2_on_sutd_5g/generated.csv
+  actual_csv: /home/f-sakai/projects/EpisodicDT-small/results/ns3_mobility_v2_on_sutd_5g/source.csv
+  boxplot_path: /home/f-sakai/projects/EpisodicDT-small/results/ns3_mobility_v2_on_sutd_5g/figures/episode_boxplot.png
+  batch_size: 64
+  delta_distribution_path: /home/f-sakai/projects/EpisodicDT-small/results/ns3_mobility_v2_on_sutd_5g/figures/episode_delta_distribution.png

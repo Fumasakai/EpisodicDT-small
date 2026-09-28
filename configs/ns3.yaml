@@ -1,0 +1,38 @@
+# ns-3 RSRP training; prepare independent train/evaluation runs first.
+data:
+  input_dim: 1
+  episode_length: 40
+  train_path: data/processed/ns3/train
+  evaluation_path: data/processed/ns3/evaluation
+model:
+  hidden_dim: 128
+  latent_dim: 32
+  transformer_heads: 4
+  transformer_layers: 3
+  dropout: 0.05
+diffusion:
+  denoiser: conv1d
+  conv_channels: 64
+  conv_blocks: 4
+  timesteps: 100
+training:
+  batch_size: 64
+  epochs: 150
+  learning_rate: 0.0001
+  delta_loss_weight: 0.1
+  seed: 42
+  checkpoint_dir: results/checkpoints/ns3_conv_delta_v1
+  validation_samples: 32
+  validation_generation_max_episodes: 256
+  validation_seed: 12346
+  validation_fraction: 0.2
+  min_epochs: 30
+  early_stopping_patience: 15
+  early_stopping_min_delta: 0.001
+evaluation:
+  figure_dir: results/figures/ns3_conv_delta_v1
+  generated_csv: results/generated/ns3_generated_episodes.csv
+  actual_csv: results/generated/ns3_source_episodes.csv
+  boxplot_path: results/figures/ns3_conv_delta_v1/episode_boxplot.png
+  batch_size: 64
+  delta_distribution_path: results/figures/ns3_conv_delta_v1/episode_delta_distribution.png

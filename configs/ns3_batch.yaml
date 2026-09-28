@@ -1,0 +1,90 @@
+# Paths relative to the EpisodicDT-small project, not the shell's working directory.
+ns3_dir: NS3_5GLENA_modified
+batch_dir: data/processed/ns3_batches/diverse_ho_dt05_mobility_v2
+training_template: configs/ns3.yaml
+# 0.5秒間隔で約300点を確保し、40ステップ窓の学習・検証に使う。
+duration_s: 150
+sample_period_s: 0.5
+# 無線測定の鮮度制限。記録間隔とは独立して300 msを維持する。
+max_age_ms: 300
+seed: 42
+runs: [1, 2, 3]
+gnb_tx_powers_dbm: [24, 30, 36]
+layer: 2
+scenario: UMi
+frequency_hz: 3500000000
+bandwidth_hz: 20000000
+# A3 RSRP制御を有効化。現在のライブラリ既定値はHysteresis=3 dB、TimeToTrigger=256 ms。
+enable_handover: true
+# Each scenario contains 3 cars, 1 walker and 1 static UE.
+# Waypoints are [fraction of duration, x(m), y(m)]. Each car uses the same
+# route with the listed spatial offset; these are synthetic trajectories.
+car_offsets: [[0, 0], [0, 12], [0, -12]]
+scenarios:
+  # sites: [x, y, 高さ](m)、route: [実行時間に対する割合, x, y]。
+  # 150秒の実行を想定。速さ = 区間距離 / (割合の差 × duration_s)。
+  # 車は走行区間で約21～36 km/h、歩行者は約1.0～1.4 m/sに設定した合成シナリオ。
+  # 車3台はcar_offsetsだけ位置がずれ、同じ速度で移動する。
+  # 点間は直線・等速。停止・方向転換時の加減速や道路形状は再現していない。
+  # duration_sを変更すると速度も変わる。40点の窓の先頭～末尾は19.5秒。
+  # 初期接続は最も近い基地局、以後はA3条件によって切替を要求する。
+
+  # 【学習用: 接近】車は基地局1に向かって870 m移動する。
+  # 車: 5.8 m/s (20.88 km/h)。歩行者: 180 m / 150 s = 1.2 m/s。
+  # 基地局を(0,0),(600,0)に配置。車の遠方からの接近と歩行者の緩やかな移動を含む。
+  - name: approach
+    partition: train
+    sites: [[0, 0, 10], [600, 0, 10]]
+    car_route: [[0, -900, 40], [1, -30, 40]]
+    walker_route: [[0, 70, 80], [1, 250, 80]]
+    static_position: [220, 70]
+
+  # 【学習用: 離脱】車は初期基地局から離れ、第2基地局付近を通過する。
+  # 車: 1000 m / 150 s = 6.667 m/s (24 km/h)。歩行者: 1.0 m/s。
+  # 全基地局から一様に遠ざかる経路ではない。
+  - name: depart
+    partition: train
+    sites: [[0, 0, 10], [600, 0, 10]]
+    car_route: [[0, 30, 40], [1, 1030, 40]]
+    walker_route: [[0, 220, 90], [1, 70, 90]]
+    static_position: [60, 70]
+
+  # 【学習用: セル間横断】三角形状の3局の間を車が横断する。
+  # 車: 全区間10 m/s (36 km/h)、75秒で(450,60)を通過。歩行者: 1.4 m/s。
+  - name: cross_cells
+    partition: train
+    sites: [[0, 0, 10], [900, 0, 10], [450, 260, 10]]
+    car_route: [[0, -300, 60], [0.5, 450, 60], [1, 1200, 60]]
+    walker_route: [[0, 440, 50], [1, 440, 260]]
+    static_position: [510, 170]
+
+  # 【学習用: 移動・停止・引き返し】縦に600 m離した2局の間を移動する。
+  # 車: 0～60秒に400 m移動、60～90秒に停止、90～150秒に400 m戻る。
+  # 走行時6.667 m/s (24 km/h)、停止時0。歩行者: 停止せず1.2 m/s。
+  - name: stop_and_return
+    partition: train
+    sites: [[0, 0, 10], [0, 600, 10]]
+    car_route: [[0, 45, 30], [0.4, 45, 430], [0.6, 45, 430], [1, 45, 30]]
+    walker_route: [[0, 100, 180], [1, 100, 360]]
+    static_position: [80, 80]
+
+  # 【独立評価用: 方向転換】未学習の3局配置と折れ曲がる車の経路。
+  # 車: 0～60秒は8.333 m/s (30 km/h)、60～105秒は6.667 m/s (24 km/h)、
+  # 105～150秒は8.333 m/s (30 km/h)。歩行者: 180 mの斜め移動、1.2 m/s。
+  # 方向転換は瞬時。電力・乱数runを変えてもこのシナリオは学習に含めない。
+  - name: heldout_turn
+    partition: evaluation
+    sites: [[-50, -30, 10], [600, 80, 10], [250, 430, 10]]
+    car_route: [[0, -300, 50], [0.4, 200, 50], [0.7, 200, 350], [1, 575, 350]]
+    walker_route: [[0, 30, 220], [1, 138, 364]]
+    static_position: [200, 260]
+
+  # 【独立評価用: 斜め横断】斜めに配置した2局の間を直進する。
+  # 車: 約1225.8 m / 150 s = 8.172 m/s (29.42 km/h)。歩行者: 1.0 m/s。
+  # 電力・乱数runを変えてもこのシナリオは学習に含めない。
+  - name: heldout_diagonal
+    partition: evaluation
+    sites: [[0, 0, 10], [800, 250, 10]]
+    car_route: [[0, -200, 80], [1, 1000, 330]]
+    walker_route: [[0, 180, 80], [1, 270, 200]]
+    static_position: [80, 220]

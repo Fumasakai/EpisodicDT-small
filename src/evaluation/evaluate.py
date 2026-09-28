@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import time
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -33,11 +34,24 @@ def load_model(checkpoint_path, device=None):
 def generate_for_all_episodes(model, dataset, num_samples, batch_size):
     device = next(model.parameters()).device
     generated, actual, latents = [], [], []
-    for episode in DataLoader(dataset, batch_size=batch_size, shuffle=False):
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
+    total = len(dataset)
+    started = time.monotonic()
+    completed = 0
+    print(f"Generation: 0/{total:,} source episodes; {num_samples} samples/source; "
+          f"{len(loader):,} batches", flush=True)
+    for batch_index, episode in enumerate(loader, 1):
         z = model.encode(episode.to(device))
         generated.append(model.generate(z, num_samples)[..., 0].cpu().numpy())
         actual.append(episode[..., 0].numpy())
         latents.append(z.cpu())
+        completed += len(episode)
+        elapsed = time.monotonic() - started
+        remaining = elapsed * (total - completed) / completed
+        print(f"Generation: {completed:,}/{total:,} ({100 * completed / total:.1f}%) | "
+              f"batch {batch_index}/{len(loader)} | elapsed {elapsed / 60:.1f} min | "
+              f"ETA {remaining / 60:.1f} min", flush=True)
+    print("Combining generated batches and restoring dBm scale...", flush=True)
     return (np.concatenate(generated)*dataset.std+dataset.mean,
             np.concatenate(actual)*dataset.std+dataset.mean,
             {"z": torch.cat(latents)})
@@ -120,10 +134,11 @@ def save_delta_distribution(generated, actual, output_path, order=1):
     plt.close(figure)
 
 
-def save_small_multiples(generated, actual, output_path, seed=12345):
+def save_small_multiples(generated, actual, output_path, seed=12345, episode_index=None):
     """Compare one random source with up to eight distinct random samples."""
     rng = np.random.default_rng(seed)
-    episode_index = int(rng.integers(len(actual)))
+    default_index = int(rng.integers(len(actual)))
+    episode_index = default_index if episode_index is None else int(episode_index)
     selected = rng.choice(generated.shape[1], size=min(8, generated.shape[1]), replace=False)
     rows = int(np.ceil(len(selected) / 2))
     figure, axes = plt.subplots(rows, 2, figsize=(13, 3.4 * rows),
@@ -145,6 +160,26 @@ def save_small_multiples(generated, actual, output_path, seed=12345):
     figure.tight_layout(rect=(0.02, 0.02, 1, 0.97))
     figure.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close(figure)
+    return {"source_episode_id": episode_index, "sample_ids": selected.tolist()}
+
+
+def save_episode_examples(generated, actual, output_dir, seed=12345, count=10):
+    """Save distinct random source windows; keep the original first example."""
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(seed)
+    first = int(rng.integers(len(actual)))
+    candidates = np.delete(np.arange(len(actual)), first)
+    indices = [first, *rng.choice(candidates, size=min(count, len(actual)) - 1, replace=False).tolist()]
+    records = []
+    for number, index in enumerate(indices, 1):
+        filename = 'episodes.png' if number == 1 else f'episodes_{number:02d}.png'
+        record = save_small_multiples(generated, actual, out / filename,
+                                     seed=seed, episode_index=index)
+        records.append({"file": filename, **record})
+        print(f"Saved example {number}/{len(indices)}: {filename} (Source {index})", flush=True)
+    (out / 'episode_examples.json').write_text(json.dumps({"seed": seed, "examples": records}, indent=2) + '\n')
+    return records
 
 
 def main():
@@ -158,13 +193,17 @@ def main():
     torch.manual_seed(args.seed)
     config = yaml.safe_load(Path(args.config).read_text())
     path = Path(config["training"]["checkpoint_dir"])/"episodicdt.pt"
+    print(f"[1/5] Loading checkpoint: {path}", flush=True)
     model, checkpoint = load_model(path)
-    print(f"Evaluation device: {next(model.parameters()).device}")
+    print(f"Evaluation device: {next(model.parameters()).device}", flush=True)
+    print(f"[2/5] Loading evaluation data: {config['data']['evaluation_path']}", flush=True)
     dataset = RSRPEpisodeDataset(config["data"]["evaluation_path"],
                                  checkpoint["config"]["data"]["episode_length"],
                                  checkpoint["mean"], checkpoint["std"])
     cfg = config["evaluation"]
+    print("[3/5] Generating episodes (progress updates after each batch)", flush=True)
     generated, actual, latent = generate_for_all_episodes(model, dataset, args.samples, cfg["batch_size"])
+    print("[4/5] Saving generated/source CSVs and latent variables...", flush=True)
     save_generated(generated, cfg["generated_csv"])
     actual_path = Path(cfg["actual_csv"])
     actual_path.parent.mkdir(parents=True, exist_ok=True)
@@ -179,6 +218,7 @@ def main():
                 "checkpoint_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                 "seed": args.seed, "windows": dataset.windows,
                 "source_files": [str(p) for p in dataset.paths]}, latent_path)
+    print("[5/5] Computing metrics and saving figures...", flush=True)
     metrics = {"reconstruction_" + k: v for k,v in forecast_metrics(
         torch.from_numpy(generated), torch.from_numpy(actual)).items()}
     metrics.update({"interpretation": "Conditional reconstruction; source episode is encoder input.",
@@ -187,14 +227,19 @@ def main():
     (out/"episode_metrics.json").write_text(json.dumps(metrics, indent=2, allow_nan=False)+"\n")
     dest = Path(cfg.get("boxplot_path", out/"episode_boxplot.png"))
     dest.parent.mkdir(parents=True, exist_ok=True)
+    print("Saving RSRP distribution plot...", flush=True)
     save_boxplot(generated, actual, dest)
     delta_path = Path(cfg.get("delta_distribution_path", out/"episode_delta_distribution.png"))
+    print("Saving first/second difference plots...", flush=True)
     save_delta_distribution(generated, actual, delta_path)
     save_delta_distribution(generated, actual, out/"episode_second_delta_distribution.png", order=2)
+    print("Computing and saving temporal comparisons...", flush=True)
     save_temporal_comparisons(generated, actual, out)
-    save_small_multiples(generated, actual, out/"episodes.png", seed=args.seed)
+    print("Saving example trajectories...", flush=True)
+    save_episode_examples(generated, actual, out, seed=args.seed)
     print(f"Saved full generated episodes: {cfg['generated_csv']}")
     print(f"Saved reusable latent variables: {latent_path}")
+    print("Evaluation complete.", flush=True)
 
 
 if __name__ == "__main__":

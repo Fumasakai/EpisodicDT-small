@@ -174,3 +174,143 @@ Encoder出力とzの一致、推論時の決定性、Encoderへの勾配、zの�
 共通のビンで確率密度に正規化し、外れ値を含めた全範囲を表示します。
 横軸の単位はdBで、時間間隔で割った二階微分ではありません。
 絶対値が大きいほど傾きの切り替わりが大きいことを示します。3ステップ未満では計算できない旨を表示します。
+
+## ns-3 / tranDataのRSRPを学習用に変換
+
+EpisodicDT-small直下で実行します。入力にはフォルダー名またはフォルダーのパスを指定できます。
+
+```bash
+python -m src.data.prepare_ns3 tranData-1790496613670328420
+# パスで指定する場合も同じ
+python -m src.data.prepare_ns3 NS3_5GLENA_modified/tranData-1790496613670328420
+```
+
+上記2コマンドは同じ変換の別表記です。2回実行すると上書き防止のためエラーになります。
+既定の出力先は `data/processed/ns3/train/` で、入力run名・端末ID・連続区間番号ごとに
+`rsrp` 1列のCSVを作ります。値はdBmのままで、標準化と40ステップの切り出しは既存Datasetが行います。
+UEを混ぜず、`global_ue_id` ごとに `time_ms` を昇順に並べます。
+空欄/非有限RSRPは除去し、`run_manifest.json` の `samplePeriod` から想定する時間間隔を外れた箇所は別CSVにします。
+補間・ゼロ埋め・他端末との連結は行いません。同一UE・同時刻が重複する入力はエラーにします。
+
+```bash
+# 保存先・欠測扱いにする測定の古さを指定する例
+python -m src.data.prepare_ns3 tranData-別の実行 \
+  --output-dir data/processed/ns3 --max-age-ms 300
+
+# 独立した評価用シミュレーションを変換
+python -m src.data.prepare_ns3 tranData-評価用の実行 --partition evaluation
+
+# データを用意してから実行
+python -m src.train.train --config configs/ns3.yaml
+python -m src.evaluation.evaluate --config configs/ns3.yaml
+```
+
+既定は測定の古さによる除去を行わず、有限RSRPを保持します。必要なら `--max-age-ms` を指定してください。
+manifestがない場合は `--sample-period-ms 200` などを明示します。0.2秒間隔の40点は約8秒相当で、
+従来の約0.5秒間隔データと同じ40点でも時間幅は異なります。この変換はリサンプリングしません。
+
+学習用/最終評価用は `--partition train|evaluation` で指定し、変換時には自動分割しません。
+学習コードがtrain内の各連続系列を時間順80%/20%に分け、検証用にも使います。
+同じrunを両方に登録しないでください。評価用は独立した軌跡・シナリオを用意してください。
+NS3用の `configs/ns3.yaml` は既存の学習設定・結果を上書きしない別設定です。
+
+変換内容・除外行数・系列ごとの時刻範囲・作成可能な窓数は `data/processed/ns3/manifests/` のJSONに記録します。
+`--episode-length`（既定40）と `--validation-fraction`（既定0.2）はこの窓数確認に使い、学習設定に合わせます。
+短い系列も保存しますが、そのデータだけでは学習できない場合は警告します。
+例の `tranData-1790496613670328420` は5端末×9点なので40ステップの窓は0本です。
+学習・検証の両方に十分な連続観測を確保するため、まず50〜60秒以上の小規模シミュレーションで確認してください。
+
+## 基地局配置・移動経路を変えた一括データ生成
+
+`src/data/generate_ns3_batch.py` は、配置と移動経路のCSVを作成し、`tranData` を順番に実行して、
+RSRPを既存の生成モデル用CSVへ変換します。事前に `NS3_5GLENA_modified/utils/setup_trandata.sh`
+でシミュレータをビルドしてください。以下はプロジェクト直下で実行します。
+
+```bash
+# 設定・入力CSV・学習設定だけを作成して確認
+python -m src.data.generate_ns3_batch --prepare-only
+# シミュレーションと変換を一括実行
+python -m src.data.generate_ns3_batch
+# 作成したデータで学習・評価（バッチ生成自体は学習しません）
+python -m src.train.train --config data/processed/ns3_batches/diverse_ho_dt05_mobility_v2/training_config.yaml
+python -m src.evaluation.evaluate --config data/processed/ns3_batches/diverse_ho_dt05_mobility_v2/training_config.yaml
+```
+
+設定ファイルは `configs/ns3_batch.yaml` です。既定では6シナリオ×送信電力3条件
+（24/30/36 dBm）×乱数run番号3条件の **54回** を逐次実行します。
+各回は150秒、記録間隔0.5秒、車3台・歩行者1台・静止端末1台です。
+
+| シナリオ | 基地局配置 | 車の移動 | 用途 |
+|---|---|---|---|
+| approach | 横並び2局 | 基地局へ接近 | 学習 |
+| depart | 横並び2局 | 基地局から離れる | 学習 |
+| cross_cells | 三角形3局 | セル間を横断 | 学習 |
+| stop_and_return | 縦並び2局 | 移動・停止・引き返し | 学習 |
+| heldout_turn | 位置を変えた3局 | 折れ曲がる経路 | 独立評価 |
+| heldout_diagonal | 斜めに配置した2局 | 斜めに横断 | 独立評価 |
+
+`sites` は `[x, y, 高さ]`（m）、`car_route` / `walker_route` は
+`[全実行時間に対する割合, x, y]` です。割合0が開始、1が終了で、点間を線形補間します。
+同じ位置を異なる時刻に指定すると停止区間になります。車は `car_offsets` の位置差で3台に展開します。
+これらは合成の配置・軌跡であり、実道路や車両の加減速制約を再現する設定ではありません。
+既定はUMi・3.5 GHz・20 MHz・Layer 2（RSRP測定、UDP負荷なし）、A3 RSRPハンドオーバー有効です。
+既定出力先は `data/processed/ns3_batches/diverse_ho_dt05_mobility_v2/` です。Hysteresisは3 dB、TimeToTriggerは256 ms
+（ライブラリ既定値）です。有効化だけで切替が起こるとは限らず、`ho_events.csv` と
+`ue_kpi.csv` の `serving_cell_id` を確認してください。60秒のdepart確認実行では切替イベントは0件でした。通信負荷も必要な場合は `layer: 3`
+へ変更できますが、RSRPのみのモデルで通信品質全体を評価できるわけではありません。
+
+小規模な確認や条件の絞り込みも可能です。
+
+```bash
+# 全6シナリオの短時間動作確認。時間を2秒に縮めるため学習には使わない
+python -m src.data.generate_ns3_batch --smoke
+# 150秒の学習・独立評価データを各1条件ずつ生成
+python -m src.data.generate_ns3_batch \
+  --scenarios approach heldout_turn --powers 30 --runs 1 \
+  --batch-dir data/processed/ns3_batches/small_v1
+```
+
+出力先には `inputs/`（配置・経路）、`raw/`（シミュレーション出力）、`logs/`、
+`processed/train/`、`processed/evaluation/`、`training_config.yaml` を保存します。
+`--prepare-only` を含む準備処理では、実際に使用する入力CSVからシナリオごとの
+配置・経路図 `figures/<シナリオ名>.png` も作成します。黒い三角は基地局（高さを併記）、
+色付きの線と矢印は車・歩行者の経路と進行方向、丸は開始点、Xは終了点、四角は静止端末です。
+停止区間には停止時刻を表示します。座標はm単位の平面図で、重なる軌跡は同じ位置に描画します。
+既存バッチでも、他の条件・入力が一致すれば `--prepare-only` で図を再作成できます。
+この場合、以前の実行計画のコードハッシュは保存したままです。コード変更後の本実行には
+従来どおり新しい `--batch-dir` を指定してください。
+`batch_plan.json` は条件と実行コード等のハッシュ、`batch_summary.json` は各実行の
+RSRP範囲・有効値率・変換後の窓数・実行時間を記録します。初期欠測と古い測定値
+（既定300 ms超）は変換時に除外し、時間の欠落をまたいで窓を作りません。
+
+同じコマンドを再実行すると、完了済みの出力ハッシュを確認してスキップします。
+条件・コード・ビルドを変更した場合は新しい `--batch-dir` を指定してください。
+失敗して途中出力が残った実行は自動上書きせず停止するため、ログを確認して新しい出力先で再実行します。
+
+同じ配置・経路の電力違い・乱数違いはすべて同じ用途に所属します。
+学習用系列内の前方80%を学習、後方20%を検証とし、独立評価には別の配置・経路を使います。
+重なる40ステップ窓は独立した実験ではないため、データ量は窓数に加えてシナリオ数・run数でも判断してください。
+
+現在のバッチ設定は0.5秒間隔・150秒です。車の走行速度を約21～36 km/h、歩行者を1.0～1.4 m/sに設定し、
+経路と基地局配置を調整しています。区間ごとの速さは `configs/ns3_batch.yaml` の注釈を参照してください。40点の窓の先頭から末尾までは19.5秒です。
+ns-3は離散イベントシミュレータであり、この記録間隔の変更は内部の無線処理周期の変更ではありません。
+
+## ns-3学習モデルをSUTDデータで評価
+
+```bash
+python -m src.evaluation.evaluate --config configs/ns3_mobility_v2_on_sutd_5g.yaml
+```
+
+この評価専用設定は `diverse_ho_dt05_mobility_v2` の学習済みチェックポイントを読み込み、
+`data/processed/sutd_5g/evaluation/` の全40点窓を評価します。再学習は行わず、
+正規化の平均・標準偏差もns-3の学習時の値を使います。各窓から32本を生成し、
+結果は `results/ns3_mobility_v2_on_sutd_5g/` に保存します。
+これはSUTDの元エピソードをエンコーダに入力する条件付き再構成の評価です。
+未来予測や制御AIの通信品質評価ではありません。SUTDの実測時刻には揺らぎがありますが、
+既存の評価処理は再サンプリングせず連続40点を扱います。
+
+評価時のエピソード比較図は、重複なしでランダムに選んだ最大10個の元エピソードについて、
+それぞれ最大8本の生成サンプルを表示します。保存名は `episodes.png`、
+`episodes_02.png`～`episodes_10.png` です。最初の図は従来と同じ選択方法で、
+選んだ元エピソードIDと生成サンプルIDは `episode_examples.json` に記録します。
+同じ評価データとseedでは同じ選択になり、元エピソードが10個未満ならその数だけ作成します。
