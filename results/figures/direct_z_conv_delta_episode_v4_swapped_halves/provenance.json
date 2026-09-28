@@ -1,0 +1,23 @@
+{
+  "python": "3.12.13",
+  "torch": "2.11.0+cu128",
+  "gpu": "NVIDIA GeForce RTX 3090 Ti",
+  "baseline_checkpoint_sha256": "b53d783aa3ed040703fca4d320336633a0326969c7fb19e6c4632bbc797550d1",
+  "source_code_sha256": {
+    "src/train/train.py": "35d1236ac518f759d25dbf83b4f803d1a496ace6340ee0b23442cded30f7b4db",
+    "src/evaluation/evaluate.py": "0e282861c118dadae9cbce052db7f307a186be307b4778f950d432013d0af0a0",
+    "src/models/episodic_diffusion.py": "e15d75159c1d77b2cd4b79b441ee37d7bc1723383e93cd1cc1462744d30e835e"
+  },
+  "verified_episode_counts": {
+    "train": 3337,
+    "validation": 720,
+    "evaluation": 4211
+  },
+  "checks": [
+    "Training/validation windows do not share raw rows",
+    "Evaluation time range precedes training/validation time range in every scenario (see split_manifest.json)",
+    "Existing baseline latent metadata matches baseline checkpoint SHA256",
+    "New latent metadata matches the new checkpoint; 4211 evaluation windows, 10 example figures, successful training/evaluation exit codes"
+  ],
+  "new_checkpoint_sha256": "c11a9184cf1a84f06741274f80127adce71ec1a0da77e765a05df830eab51424"
+}

@@ -1,0 +1,40 @@
+[
+  {
+    "experiment": "Original",
+    "evaluation_episodes": 4213,
+    "epochs_run": 82,
+    "best_epoch": 78,
+    "reconstruction_crps_dbm": 1.3861768245697021,
+    "reconstruction_mae_dbm": 1.8729394674301147,
+    "reconstruction_coverage_90": 0.7614348530769348,
+    "within_fixed_z_std_dbm": 1.7441354990005493,
+    "interval_width_90_dbm": 5.38508847951889,
+    "source_mean_dbm": -103.60140814146689,
+    "source_std_dbm": 13.976054696827914,
+    "source_delta1_std_db": 2.4035938177626495,
+    "source_delta2_std_db": 3.641834246389423,
+    "generated_mean_dbm": -104.23377625039221,
+    "generated_std_dbm": 14.18767222082264,
+    "generated_delta1_std_db": 1.9233144761014287,
+    "generated_delta2_std_db": 3.005940696756723
+  },
+  {
+    "experiment": "Swapped halves",
+    "evaluation_episodes": 4211,
+    "epochs_run": 117,
+    "best_epoch": 113,
+    "reconstruction_crps_dbm": 1.0954411029815674,
+    "reconstruction_mae_dbm": 1.5064809322357178,
+    "reconstruction_coverage_90": 0.7985692024230957,
+    "within_fixed_z_std_dbm": 1.6066614389419556,
+    "interval_width_90_dbm": 4.95288770198822,
+    "source_mean_dbm": -98.01074388506292,
+    "source_std_dbm": 13.337967744738037,
+    "source_delta1_std_db": 2.1813623674105203,
+    "source_delta2_std_db": 3.2837096372906154,
+    "generated_mean_dbm": -97.79524774767665,
+    "generated_std_dbm": 13.600899030897747,
+    "generated_delta1_std_db": 1.8939343795532466,
+    "generated_delta2_std_db": 2.9204521536208943
+  }
+]

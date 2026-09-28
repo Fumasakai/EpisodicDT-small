@@ -1,0 +1,145 @@
+{
+  "seed": 12346,
+  "examples": [
+    {
+      "file": "episodes.png",
+      "source_episode_id": 2372,
+      "sample_ids": [
+        13,
+        20,
+        19,
+        1,
+        21,
+        31,
+        30,
+        11
+      ]
+    },
+    {
+      "file": "episodes_02.png",
+      "source_episode_id": 2811,
+      "sample_ids": [
+        13,
+        20,
+        19,
+        1,
+        21,
+        31,
+        30,
+        11
+      ]
+    },
+    {
+      "file": "episodes_03.png",
+      "source_episode_id": 200,
+      "sample_ids": [
+        13,
+        20,
+        19,
+        1,
+        21,
+        31,
+        30,
+        11
+      ]
+    },
+    {
+      "file": "episodes_04.png",
+      "source_episode_id": 2851,
+      "sample_ids": [
+        13,
+        20,
+        19,
+        1,
+        21,
+        31,
+        30,
+        11
+      ]
+    },
+    {
+      "file": "episodes_05.png",
+      "source_episode_id": 3546,
+      "sample_ids": [
+        13,
+        20,
+        19,
+        1,
+        21,
+        31,
+        30,
+        11
+      ]
+    },
+    {
+      "file": "episodes_06.png",
+      "source_episode_id": 2860,
+      "sample_ids": [
+        13,
+        20,
+        19,
+        1,
+        21,
+        31,
+        30,
+        11
+      ]
+    },
+    {
+      "file": "episodes_07.png",
+      "source_episode_id": 1958,
+      "sample_ids": [
+        13,
+        20,
+        19,
+        1,
+        21,
+        31,
+        30,
+        11
+      ]
+    },
+    {
+      "file": "episodes_08.png",
+      "source_episode_id": 162,
+      "sample_ids": [
+        13,
+        20,
+        19,
+        1,
+        21,
+        31,
+        30,
+        11
+      ]
+    },
+    {
+      "file": "episodes_09.png",
+      "source_episode_id": 1989,
+      "sample_ids": [
+        13,
+        20,
+        19,
+        1,
+        21,
+        31,
+        30,
+        11
+      ]
+    },
+    {
+      "file": "episodes_10.png",
+      "source_episode_id": 1835,
+      "sample_ids": [
+        13,
+        20,
+        19,
+        1,
+        21,
+        31,
+        30,
+        11
+      ]
+    }
+  ]
+}

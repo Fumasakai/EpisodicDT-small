@@ -1,0 +1,116 @@
+{
+  "method": "Swap the existing chronological train/evaluation halves; split the new training half into chronological 80% optimization and 20% validation. No window crosses partition boundaries.",
+  "training_seed": 42,
+  "evaluation_seed": 12346,
+  "samples": 32,
+  "scenarios": [
+    {
+      "scenario": "Lvl4_AllRRUOn_Anomaly_label.csv",
+      "files": {
+        "data/processed/sutd_5g/evaluation/Lvl4_AllRRUOn_Anomaly_label.csv": "b320fc2edf1bf0ab67604e56f058399d206183ee9c5c7a95f46523b7b098158e",
+        "data/processed/sutd_5g/train/Lvl4_AllRRUOn_Anomaly_label.csv": "f7f0143067e144253575cb1c668957a64f02d8df90eff31d0ace158a92e5ca58"
+      },
+      "partitions": {
+        "train": {
+          "rows": 931,
+          "episodes": 892,
+          "first_time": "2022-10-04 16:03:40.239",
+          "last_time": "2022-10-04 16:14:30.325"
+        },
+        "validation": {
+          "rows": 233,
+          "episodes": 194,
+          "first_time": "2022-10-04 16:14:30.861",
+          "last_time": "2022-10-04 16:17:20.541"
+        },
+        "evaluation": {
+          "rows": 1163,
+          "episodes": 1124,
+          "first_time": "2022-10-04 15:52:22.917",
+          "last_time": "2022-10-04 16:03:39.747"
+        }
+      }
+    },
+    {
+      "scenario": "Lvl5_AllRRUOn_Anomaly_label.csv",
+      "files": {
+        "data/processed/sutd_5g/evaluation/Lvl5_AllRRUOn_Anomaly_label.csv": "cb680204b536d8be3f38749576aa25a8554036e130904d7d95dbc755dfe6188e",
+        "data/processed/sutd_5g/train/Lvl5_AllRRUOn_Anomaly_label.csv": "900f21aacf78e3067f455fd8ddfaf659d87d8e14aabd74ce8158e9f8e2a6a5fd"
+      },
+      "partitions": {
+        "train": {
+          "rows": 812,
+          "episodes": 773,
+          "first_time": "2022-10-04 16:30:34.296",
+          "last_time": "2022-10-04 16:37:35.487"
+        },
+        "validation": {
+          "rows": 204,
+          "episodes": 165,
+          "first_time": "2022-10-04 16:37:36.026",
+          "last_time": "2022-10-04 16:39:57.318"
+        },
+        "evaluation": {
+          "rows": 1015,
+          "episodes": 976,
+          "first_time": "2022-10-04 16:20:37.802",
+          "last_time": "2022-10-04 16:30:33.760"
+        }
+      }
+    },
+    {
+      "scenario": "Lvl6_1RRUOn_Anomaly_label.csv",
+      "files": {
+        "data/processed/sutd_5g/evaluation/Lvl6_1RRUOn_Anomaly_label.csv": "218b46c4908e78e09eb16333046ce8d7afdc46214eda21e339829ede49a18092",
+        "data/processed/sutd_5g/train/Lvl6_1RRUOn_Anomaly_label.csv": "c72221b905ae3245fd160d228202946ea476d5b8e71d16d0d6126d579d90888a"
+      },
+      "partitions": {
+        "train": {
+          "rows": 862,
+          "episodes": 823,
+          "first_time": "2022-10-06 11:53:15.827",
+          "last_time": "2022-10-06 12:01:19.555"
+        },
+        "validation": {
+          "rows": 216,
+          "episodes": 177,
+          "first_time": "2022-10-06 12:01:20.082",
+          "last_time": "2022-10-06 12:03:10.167"
+        },
+        "evaluation": {
+          "rows": 1078,
+          "episodes": 1039,
+          "first_time": "2022-10-06 11:44:00.713",
+          "last_time": "2022-10-06 11:53:15.329"
+        }
+      }
+    },
+    {
+      "scenario": "Lvl6_AllRRUOn_Anomaly_label.csv",
+      "files": {
+        "data/processed/sutd_5g/evaluation/Lvl6_AllRRUOn_Anomaly_label.csv": "7e18860629f064e0141f4ba9d1bdfd5cf60a096d56bda20bf6fdb23e861190e9",
+        "data/processed/sutd_5g/train/Lvl6_AllRRUOn_Anomaly_label.csv": "2d847ec9a9f5aa224a529290a28169e973bcf90a901505ca7d34e65960c59596"
+      },
+      "partitions": {
+        "train": {
+          "rows": 888,
+          "episodes": 849,
+          "first_time": "2022-10-04 17:58:28.249",
+          "last_time": "2022-10-04 18:06:02.131"
+        },
+        "validation": {
+          "rows": 223,
+          "episodes": 184,
+          "first_time": "2022-10-04 18:06:02.654",
+          "last_time": "2022-10-04 18:07:56.258"
+        },
+        "evaluation": {
+          "rows": 1111,
+          "episodes": 1072,
+          "first_time": "2022-10-04 17:48:59.671",
+          "last_time": "2022-10-04 17:58:27.731"
+        }
+      }
+    }
+  ]
+}

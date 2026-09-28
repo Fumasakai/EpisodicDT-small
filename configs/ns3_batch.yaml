@@ -1,6 +1,6 @@
 # Paths relative to the EpisodicDT-small project, not the shell's working directory.
 ns3_dir: NS3_5GLENA_modified
-batch_dir: data/processed/ns3_batches/diverse_ho_dt05_mobility_v2
+batch_dir: data/processed/ns3_batches/diverse_ho_dt05_mobility_v3
 training_template: configs/ns3.yaml
 # 0.5秒間隔で約300点を確保し、40ステップ窓の学習・検証に使う。
 duration_s: 150

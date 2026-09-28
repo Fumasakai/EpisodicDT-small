@@ -232,8 +232,8 @@ python -m src.data.generate_ns3_batch --prepare-only
 # シミュレーションと変換を一括実行
 python -m src.data.generate_ns3_batch
 # 作成したデータで学習・評価（バッチ生成自体は学習しません）
-python -m src.train.train --config data/processed/ns3_batches/diverse_ho_dt05_mobility_v2/training_config.yaml
-python -m src.evaluation.evaluate --config data/processed/ns3_batches/diverse_ho_dt05_mobility_v2/training_config.yaml
+python -m src.train.train --config data/processed/ns3_batches/diverse_ho_dt05_mobility_v3/training_config.yaml
+python -m src.evaluation.evaluate --config data/processed/ns3_batches/diverse_ho_dt05_mobility_v3/training_config.yaml
 ```
 
 設定ファイルは `configs/ns3_batch.yaml` です。既定では6シナリオ×送信電力3条件
@@ -314,3 +314,28 @@ python -m src.evaluation.evaluate --config configs/ns3_mobility_v2_on_sutd_5g.ya
 `episodes_02.png`～`episodes_10.png` です。最初の図は従来と同じ選択方法で、
 選んだ元エピソードIDと生成サンプルIDは `episode_examples.json` に記録します。
 同じ評価データとseedでは同じ選択になり、元エピソードが10個未満ならその数だけ作成します。
+
+### ハンドオーバー修正とv3データ（2026-09-28）
+
+`tranData.cc` に基地局ごとのA3判定器の生成、RRCとの双方向SAP接続、
+接続前の初期化と終了後の破棄を追加しました。使用中の5G-LENA v4.1.1では
+`SetHandoverAlgorithmType` の指定だけでは判定器が接続されません。
+修正後は `run_manifest.json` の `handover_controller` が `A3_RSRP_explicit_SAP_v1` になります。
+
+現在の `configs/ns3_batch.yaml` の出力先は `diverse_ho_dt05_mobility_v3` です。
+v3の54実行中45実行で計216回の開始・完了イベントを確認し、141本のUE系列で接続セルが変化しました。
+v2の既存データは自動ハンドオーバーが動いていない修正前データとして区別してください。
+
+今回の動作確認範囲は **Layer 2（RSRP測定）** です。
+`Layer=3` とハンドオーバーを組み合わせると、切替付近でNRのUL CQI処理
+`NrMacSchedulerNs3::DoSchedUlCqiInfoReq` 内の異常終了を確認しています。
+通信負荷を伴うハンドオーバーの利用には、この別問題の修正が必要です。
+
+```bash
+cd NS3_5GLENA_modified
+/usr/bin/python3 ns3 build tranData
+/usr/bin/python3 utils/test_trandata_handover.py
+```
+
+`Completed output missing/changed` は、完了記録と出力ファイルが一致しない場合の保護処理です。
+今回v3で欠けていた変換CSVとmanifestは、元のrawデータから復元し、元のハッシュと一致することを確認しました。
