@@ -145,7 +145,7 @@ def save_small_multiples(generated, actual, output_path, seed=12345, episode_ind
                                 squeeze=False, sharex=True, sharey=True)
     steps = np.arange(actual.shape[1])
     for axis, sample_index in zip(axes.flat, selected):
-        axis.plot(steps, actual[episode_index], color="tab:green", linewidth=2,
+        axis.plot(steps, actual[episode_index], color="tab:red", linewidth=2,
                   label="source episode")
         axis.plot(steps, generated[episode_index, sample_index], color="tab:blue",
                   linewidth=1.5, label="generated episode")

@@ -1,0 +1,57 @@
+# 急変区間で既存モデルを検証するための、シミュレーション入力。
+# 準備: python -m src.data.generate_ns3_batch --config configs/ns3_batch_v4.yaml --prepare-only
+# 実行: python -m src.data.generate_ns3_batch --config configs/ns3_batch_v4.yaml
+# パスはプロジェクト直下を基準に解決する。
+ns3_dir: NS3_5GLENA_modified
+batch_dir: data/processed/ns3_batches/diverse_ho_dt05_mobility_v4
+training_template: configs/ns3.yaml
+duration_s: 150
+sample_period_s: 0.5
+max_age_ms: 300
+seed: 42
+runs: [1, 2, 3]
+gnb_tx_powers_dbm: [30]
+layer: 2
+scenario: UMi
+frequency_hz: 3500000000
+bandwidth_hz: 20000000
+# 複数局ではA3ハンドオーバーを有効化。単一局では切替先なし。
+enable_handover: true
+# 車3台。基地局との最短水平距離は30、42、18 m。
+car_offsets: [[0, 0], [0, 12], [0, -12]]
+# 全シナリオを独立評価用とする。このバッチ単独では学習用データを作らない。
+# 車: 2250 m / 150 s = 15 m/s = 54 km/h、全区間を直進・等速走行。
+# 歩行者: 180 m / 150 s = 1.2 m/s。静止端末とともに緩やかな変化の対照用。
+# route: [実行時間に対する割合, x(m), y(m)]、sites: [x(m), y(m), 高さ(m)]。
+# 0.5秒間隔の40点は先頭から末尾まで19.5秒。記録間隔は無線内部の時間刻みとは別。
+# 建物・遮蔽物の追加は行わない。実際のRSRP変化量は実行後に確認する。
+scenarios:
+  # 【近傍通過】単一基地局に接近して離脱。75秒で最接近。
+  # 65～85秒付近を調べ、上昇・下降とピークの鋭さを評価する。
+  - name: near_pass
+    partition: evaluation
+    sites: [[0, 0, 10]]
+    car_route: [[0, -1125, 30], [1, 1125, 30]]
+    walker_route: [[0, -90, 100], [1, 90, 100]]
+    static_position: [0, 150]
+
+  # 【セル間移動】300 m離した2局を順に通過。
+  # 最接近は65秒・85秒、等距離地点x=150の通過は75秒。
+  # ハンドオーバー時刻はA3条件と測定値で決まるため75秒とは限らない。
+  # 接続先切替によるRSRPの段差はserving_cell_idとho_events.csvで区別する。
+  - name: fast_cell_crossing
+    partition: evaluation
+    sites: [[0, 0, 10], [300, 0, 10]]
+    car_route: [[0, -975, 30], [1, 1275, 30]]
+    walker_route: [[0, 60, 100], [1, 240, 100]]
+    static_position: [150, 150]
+
+  # 【連続通過】200 m間隔の3局を約13.33秒間隔で通過。
+  # 最接近は約61.67秒・75秒・88.33秒。
+  # 接近・離脱の反復と複数回の切替を調べる。切替発生は実行後に確認する。
+  - name: successive_cell_passes
+    partition: evaluation
+    sites: [[0, 0, 10], [200, 0, 10], [400, 0, 10]]
+    car_route: [[0, -925, 30], [1, 1325, 30]]
+    walker_route: [[0, 110, 100], [1, 290, 100]]
+    static_position: [200, 150]

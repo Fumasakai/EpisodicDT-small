@@ -1,0 +1,145 @@
+{
+  "seed": 12345,
+  "examples": [
+    {
+      "file": "episodes.png",
+      "source_episode_id": 8212,
+      "sample_ids": [
+        30,
+        31,
+        5,
+        23,
+        8,
+        20,
+        19,
+        27
+      ]
+    },
+    {
+      "file": "episodes_02.png",
+      "source_episode_id": 4593,
+      "sample_ids": [
+        30,
+        31,
+        5,
+        23,
+        8,
+        20,
+        19,
+        27
+      ]
+    },
+    {
+      "file": "episodes_03.png",
+      "source_episode_id": 9362,
+      "sample_ids": [
+        30,
+        31,
+        5,
+        23,
+        8,
+        20,
+        19,
+        27
+      ]
+    },
+    {
+      "file": "episodes_04.png",
+      "source_episode_id": 7545,
+      "sample_ids": [
+        30,
+        31,
+        5,
+        23,
+        8,
+        20,
+        19,
+        27
+      ]
+    },
+    {
+      "file": "episodes_05.png",
+      "source_episode_id": 2668,
+      "sample_ids": [
+        30,
+        31,
+        5,
+        23,
+        8,
+        20,
+        19,
+        27
+      ]
+    },
+    {
+      "file": "episodes_06.png",
+      "source_episode_id": 9257,
+      "sample_ids": [
+        30,
+        31,
+        5,
+        23,
+        8,
+        20,
+        19,
+        27
+      ]
+    },
+    {
+      "file": "episodes_07.png",
+      "source_episode_id": 7940,
+      "sample_ids": [
+        30,
+        31,
+        5,
+        23,
+        8,
+        20,
+        19,
+        27
+      ]
+    },
+    {
+      "file": "episodes_08.png",
+      "source_episode_id": 2396,
+      "sample_ids": [
+        30,
+        31,
+        5,
+        23,
+        8,
+        20,
+        19,
+        27
+      ]
+    },
+    {
+      "file": "episodes_09.png",
+      "source_episode_id": 3718,
+      "sample_ids": [
+        30,
+        31,
+        5,
+        23,
+        8,
+        20,
+        19,
+        27
+      ]
+    },
+    {
+      "file": "episodes_10.png",
+      "source_episode_id": 11608,
+      "sample_ids": [
+        30,
+        31,
+        5,
+        23,
+        8,
+        20,
+        19,
+        27
+      ]
+    }
+  ]
+}
