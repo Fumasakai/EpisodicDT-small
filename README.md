@@ -1,341 +1,294 @@
 # EpisodicDT-small
 
-元エピソード全体からEncoderが出力したベクトルをそのまま潜在変数zとし、
-zと拡散ノイズから新しいRSRPエピソード全体を生成します。
-標準形式は `direct_z_conv_episode_v3` です。
+NS-3の通信エピソードから潜在状態を学習し、危険イベントが起きるUE群の移動経路を生成する研究用プログラムです。分類器は使わず、生成経路をNS-3で実行した結果を報酬にしてEncoder・Decoderを同時学習します。その後、イベント条件付き潜在拡散モデルを学習します。
 
 ```text
-元エピソード [B,40,1] → Transformer Encoder → z [B,32]
-                                                 ↓
-                                    拡散モデル (x_t, t, z)
-                                                 ↓
-                                      全体系列 [B,S,40,1]
+固定基地局・通信条件YAML ＋ UE経路CSV
+  → NS-3 → 通信ログ・HOイベント → エピソードとラベル
+                                     ↓
+                              Encoder → 潜在状態z
+                                         ↓
+                              Decoder → UE群の移動経路
+                                 ↑              ↓
+                                 └── 報酬 ← NS-3
+
+学習済みEncoder → イベント条件付き潜在拡散モデル → 新しいz
+                                                   ↓
+                                          Decoder → NS-3で検証
 ```
 
-μ・σの推定、潜在変数のサンプリング、KL正則化はありません。
-損失は全体系列のv予測MSEと隣接変化量の補助MSEの重み付き和で、両方の勾配がzを通してEncoderへ伝わります。
-推論時は `model.eval()` を使い、同じ入力に対して同じzを得ます。
-学習時にはEncoderのdropoutが有効です。
-同じzからでも、拡散モデルのノイズを変えることで複数の系列を生成できます。
+## 現在使用するファイル
 
-## 実行
+`data/processed/` には次の2フォルダを残しています。
+
+```text
+data/processed/
+  training_dataset_next/          # 現在の学習データ・最新設定・再利用するモデル
+    episodes/
+    mobility_inflight_fixed/
+    training_fast.yaml
+    training_diffusion_scenario.yaml
+    simulation.yaml
+  training_dataset_next_screen/   # 学習データから参照する原ログ・入力経路・経路図
+```
+
+`mobility_fast/`、`diffusion_scenario/`、評価結果のフォルダは、対応するコマンドを実行すると作成されます。
+原データ内の失敗ログも含め、現在のデータセット作成記録は保持しています。
+
+
+| 用途 | パス |
+|---|---|
+| データ生成条件・固定基地局・シナリオ一覧 | `configs/training_dataset_v2.yaml` |
+| 入力経路CSV | `data/scenarios/training_dataset_v2/` |
+| 現在の学習データセット | `data/processed/training_dataset_next/` |
+| データセットが参照する実行原データ | `data/processed/training_dataset_next_screen/` |
+| 修正後の学習設定 | `data/processed/training_dataset_next/training_inflight_fixed.yaml` |
+| 修正後のEncoder・Decoder保存先 | `data/processed/training_dataset_next/mobility_inflight_fixed/` |
+| 修正後の拡散モデル保存先 | `data/processed/training_dataset_next/diffusion_inflight_fixed/` |
+| 旧ビルドでの119更新目の重み | `data/processed/training_dataset_next/mobility_fixed/latest.pt` |
+
+`training_fixed.yaml`、`training.yaml`、旧モデルのディレクトリは過去の実行記録です。以下の学習・生成手順では `training_inflight_fixed.yaml` を使用します。`training_dataset_v2` という名前は現在の入力CSVと生成条件にも使われていますが、学習データの参照先は `training_dataset_next` です。
+
+```text
+src/data/          経路生成、NS-3実行、エピソード変換、監査
+src/models/        Encoder・Decoder、潜在拡散モデル
+src/simulation/    生成経路のNS-3評価と報酬
+src/train/         モデル学習
+src/evaluation/    学習済みモデルからの経路生成と検証
+src/tools/         ブラウザ経路エディタ
+NS3_5GLENA_modified/  シミュレータ本体と修正パッチ
+tests/             Pythonテスト
+docs/              調査記録と説明資料
+```
+
+## 環境の準備
+
+プロジェクト直下で実行します。
 
 ```bash
+conda env create -f environment.yml  # 環境が未作成の場合のみ
 conda activate episodicdt
-# 未前処理の場合
-python -m src.data.prepare_sutd_5g
-python -m src.train.train --config configs/config.yaml
-python -m src.evaluation.evaluate --config configs/config.yaml --samples 32 --seed 12346
+bash NS3_5GLENA_modified/utils/setup_trandata.sh
 ```
 
-設定は `configs/config.yaml`。`data.episode_length: 40` は全体のステップ数です。
-評価と保存済みzからの生成は、CUDAが利用可能なら自動でGPUを使用し、利用できなければCPUで実行します。使用デバイスは起動時に表示します。生成結果とzはバッチごとにCPUへ戻し、CSV・グラフ・潜在変数ファイルの保存形式を維持します。
-約2 Hzなら約20秒ですが、実時間は元の計測時刻に依存します。
-固定ステップのRSRP系列を扱い、時刻の補間は行いません。
+セットアップはNS-3への修正パッチ適用とビルドを行います。現在のワークスペースでは内部エラー修正後のビルドを確認済みです。既存データで学習するためにデータ生成をやり直す必要はありません。
 
-## zだけから再生成
+## NS-3内部エラーの修正
+
+`Cannot receive DATA while receiving CTRL.` の原因は、ハンドオーバー前から受信中だった旧セルの制御情報が、新セルでの送信指示として処理されることでした。接続リセット時に古い制御情報を無効化しました。異常検知を削除する変更ではありません。
+
+問題の検証条件16実行と過去の訓練条件8実行が全て正常終了しました。HO統合テスト4条件、新規C++テスト、Pythonテスト48件も通過しています。修正は `utils/patches/0006-handover-invalidate-inflight-control.patch` に保存しています（NS-3ディレクトリ内）。
+
+詳細は[原因・修正内容・検証結果](docs/ns3_inflight_control_fix.md)を参照してください。
+
+## Encoder・Decoderの学習
+
+### 開始済みの修正後学習を再開する
+
+現在の `mobility_inflight_fixed/` にはチェックポイントがあります。停止後に再開する場合は次を使います。実行中の学習と同じ保存先に別の学習プロセスを起動しないでください。
 
 ```bash
-python -m src.evaluation.generate \
-  --checkpoint results/checkpoints/direct_z_conv_delta_episode_v4/episodicdt.pt \
-  --latents results/generated/direct_z_conv_delta_generated_episodes.latents.pt \
-  --output results/generated/from_direct_z.csv \
-  --samples 16 --seed 42
+OMP_NUM_THREADS=1 python -m src.train.train_mobility \
+  --config data/processed/training_dataset_next/training_inflight_fixed.yaml \
+  --resume
 ```
 
-元CSVを読むことなく、保存済みzから生成します。潜在ファイルにはz、元窓情報、
-チェックポイントのSHA-256を保存します。異なるモデル由来のzは拒否します。
-旧方式の `--resample-z` は廃止しました。
+`latest.pt` のモデル・optimizer・更新数などを復元します。同じNS-3ビルドと互換性のある設定が必要です。
 
-```python
-model.eval()
-z = model.encode(normalized_episode)  # Tensor [B,32]; Encoderの出力そのもの
-new_episodes = model.generate(z, num_samples=16)  # [B,16,40,1]
-rsrp_dbm = new_episodes * training_std + training_mean
-```
+### 旧119更新目の重みから初回起動する場合
 
-## 学習と評価
-
-- 入力はCSVの `rsrp` 列。窓はファイル境界をまたぎません。
-- 学習用CSVを時間順に学習・検証へ分割し、境界をまたぐ窓を除外します。
-- 標準化は検証を除いた学習区間の平均・標準偏差を使います。
-- 絶対RSRPを生成し、元系列の最終値を加算する処理はありません。
-- 検証ノイズを固定し、検証合計損失で保存モデルとEarly Stoppingを決めます。
-  ログの `loss = diffusion_mse + delta_loss_weight * delta_mse` です。
-- 評価は再生成CRPS・MAE・90%区間被覆率・区間幅と、固定z内の生成標準偏差です。
-  元系列全体をEncoderへ入力する条件付き再生成であり、未来予測精度ではありません。
-- 危険例生成率や危険閾値表示は含みません。標準学習は通常・危険の全窓を対象とします。
-
-チェックポイントは `results/checkpoints/direct_z_conv_delta_episode_v4/`、図は
-`results/figures/direct_z_conv_delta_episode_v4/` に保存します。
-生成CSVの列は `episode_id, sample_id, episode_step, rsrp_generated_dbm`。
-元系列CSV、潜在変数ファイル、評価JSONも保存します。
-
-**旧MLP形式 `direct_z_episode_v2`、旧形式 `latent_episode_v1`、`zero_snr_v_residual_v1` とは非互換で、再学習が必要です。**
-旧結果を比較用に残すため、新形式は別の保存先を使います。
-旧設定から移行する場合は `kl_beta` を削除し、新しい設定と保存先を使ってください。
-旧未来予測用の `EpisodicDiffusion` / `RSRPWindowDataset` は比較用に残しています。
-
-## テストと今後の拡張
+次は修正後の保存先がまだ存在しない場合の初回用コマンドです。開始済みの学習には上の `--resume` を使います。
 
 ```bash
-OMP_NUM_THREADS=1 MPLCONFIGDIR=/tmp/episodicdt-mpl python -m unittest discover -s tests -v
+OMP_NUM_THREADS=1 python -m src.train.train_mobility \
+  --config data/processed/training_dataset_next/training_inflight_fixed.yaml \
+  --initialize-from data/processed/training_dataset_next/mobility_fixed/latest.pt
 ```
 
-Encoder出力とzの一致、推論時の決定性、Encoderへの勾配、zのみの生成、
-学習・保存・評価・元CSVなしの再生成、旧方式の回帰テストを確認します。
+NS-3ビルドが変わったため、旧チェックポイントの直接 `--resume` は互換性検査で拒否されます。`--initialize-from` はデータ・モデルの互換性を確認して重みだけを引き継ぎます。optimizerと最良検証スコアは初期化し、修正後のNS-3で初期検証をやり直します。
 
-同条件・別乱数のペアがある場合、`model.loss_terms(source, target=paired_episode)`
-で学習できます。標準のCSVには条件ペア情報がないため、現在は自己再生成です。
-潜在変数の物理的意味、生成系列の現実性は未検証です。
-環境条件への対応付け、シミュレータへの接続、制御AIの比較評価は今後の課題です。
+設定は8並列・追加81更新です。元の200更新から保存済み119更新を除いた数で、新しい実行の表示は `update=1` から始まります。旧結果は上書きしません。引き継ぎ元とハッシュは `initialization.json` に記録します。
 
-[2ページ想定のLaTeX概要](docs/latent_episode_overview.tex)
+重みを引き継がず新規学習する場合は、このYAMLを別名にコピーし、`output_dir` と `diffusion_output_dir` を未使用の保存先に変更して、必要な `training.updates` を設定します。その設定を指定し、`--resume` と `--initialize-from` を付けずに実行してください。
 
-## 隣接ステップの変化量分布
+### 学習処理と報酬
 
-`episode_delta_distribution.png` は各エピソード内で `x[t+1] - x[t]` を計算して比較します。
-元系列と個々の生成系列の変化量分布を、1つのパネルで比較します。
-横軸はdB（時間当たりの変化率ではない）、縦軸は確率密度です。
-共通のビン境界と面積1の正規化で、標本数の違いを考慮します。
-全値を含み、別エピソードや別生成サンプルの境界をまたぐ差は取りません。
-生成側の分布が広いほど急な変化が多いことを示しますが、これだけでは長時間の相関は評価できません。
+1更新では入力エピソード2件をEncoderに渡し、それぞれから4候補、計8候補の経路をDecoderで生成します。通常は候補ごとにNS-3を1回実行します。正常終了した候補が不足した場合は追加試行するため、実行数が増えることがあります。
 
-## 時間方向の畳み込み生成器（v3）
+報酬は、どれか1台でHOFまたはピンポンが確認できれば+1、全UEについて対象イベントなしと確認できれば−1です。元エピソードの全UEとのイベント一致は要求しません。不明な観測やシミュレータ異常終了を負の報酬として扱いません。REINFORCEと同じ入力の他候補によるbaselineでEncoder・Decoderを更新します。
 
-拡散モデルのv予測器をMLPからConv1dへ変更しました。Encoder、v予測MSE、
-ノイズスケジュール、DDPMサンプリングは維持しています。Encoderは従来どおり同時学習します。
-固定した学習済みEncoderを用いる比較実験は、この変更には含みません。
+生成経路にはUE属性の速度範囲と初期位置の制約を適用します。車両は移動中1〜65 m/s、歩行者は0.3〜2 m/s、静止UEは0 m/sで、停止を許します。加速度・旋回角度の制約は設けません。入力と出力のUE数・属性構成は同じです。
 
-- 入力系列を `[B,1,L]` に変換し、位置座標（−1〜1）を追加。
-- 1×1畳み込みで64チャネルへ変換。
-- 4個の残差ブロック。それぞれkernel=3、dilation=1,2,4,8の畳み込みを2回使用。
-- 各ブロックへzと拡散ステップの埋込みをスケール・シフトとして渡す。
-- GroupNorm・SiLU・1×1畳み込みで `[B,L,1]` のvを出力。
+検証は訓練の更新とは別に8候補×run 101/102の16実行で行い、最良モデルを選びます。不完全な検証では最良モデルを更新しません。`mobility update` は更新番号、`reward` はその更新の有効候補の平均報酬、`danger_success` は危険イベントの成功率です。
 
-畳み込み経路の受容野は61ステップです。GroupNormは時間軸も含めて正規化します。
-パディングで長さを保ち、全体生成用なので因果マスクはありません。
-位置情報は、入力が純粋なノイズの場合もzから時刻固有の特徴を再現できるように与えます。
-設定項目は `diffusion.denoiser: conv1d`、`conv_channels: 64`、`conv_blocks: 4` です。
-畳み込みに変えただけで変動の改善が保証されるわけではなく、再学習後に個々の生成系列の
-変化量分布・自己相関・再生成精度を比較してください。
+並列数は `training.simulation_workers` で変更できます。4並列と8並列の比較では8並列が速かったため、現在は8を使用しています。[比較結果](docs/parallel_simulation.md)を参照してください。
 
-旧MLPの評価・再学習には `--config configs/mlp_baseline.yaml` を指定できます。
-旧v2チェックポイントの読込みにも対応しています。v3の重みとは互換性がありません。
-比較時はモデル容量・計算量の違いと学習seedの影響も考慮してください。
+## 学習時間の短縮
 
-## 元エピソードと生成系列の折れ線比較
+検証報酬が2回連続で改善しなければ終了する設定を追加しました。
+`training_inflight_fixed.yaml` の `training.early_stopping` で調整できます。
+既に起動している学習には自動反映されません。再開時は過去の検証履歴も使って停止を判定します。
 
-`episodes.png` はランダムに選んだ元エピソード1本と、それに対応する生成系列から重複なしで選んだ8本を、2列×4行で比較します。各パネルの緑線が同じ元系列、青線が個々の生成系列です。選択には評価の `--seed` を使用し、同じデータとseedなら同じ選択になります。生成本数が8本未満なら、利用可能な全本数を表示します。
+さらに、学習候補でHOFまたはピンポンが確定した時点でNS-3を終了する高速化版を用意しました。
+検証は全期間を実行します。通常のNS-3実行ファイルは保持し、高速化版を別名でビルド済みです。
 
-## 時間的特徴の比較
-
-評価時に `episode_autocorrelation.png`（自己相関）と
-`episode_mean_squared_change.png`（時間間隔ごとの平均二乗変化量）を出力します。
-元系列と個々の生成系列でそれぞれ指標を計算し、緑・青の線で平均、帯で系列間の10–90%点を表示します。
-帯は信頼区間ではありません。生成値の中央値系列は使用しません。
-時間差は0からエピソード長の半分（40ステップなら20）までです。
-自己相関は各系列の平均を引き、遅れ積和を系列全体の偏差平方和で割ります。
-定数系列は自己相関が未定義なので除外し、除外数を図に表示します。
-平均二乗変化量は各時間差kについて `(x[i+k]-x[i])**2` の系列内平均です。
-重なる窓から切り出した元系列は独立標本ではありません。
-
-## 隣接変化量の補助損失
-
-標準設定は `training.delta_loss_weight: 0.1` です。0で従来のv予測損失のみになります。
-学習中のノイズ付き系列とv予測から `x_hat = sqrt(alpha_bar)*x_t - sqrt(1-alpha_bar)*v_hat` を計算し、
-`delta_mse = mean((diff(x_hat)-diff(target))**2)` を加えます。差分は各系列内の時間方向です。
-標準化した値で計算するため、損失の単位はdB²ではありません。1ステップの系列では差分損失を0とします。
-生成を100回繰り返す追加処理はなく、復元値から直接計算します。
-学習・検証のログには補助損失も記録し、モデル選択と早期終了には合計損失を使います。
-
-補助損失ありの標準設定は `direct_z_conv_delta_episode_v4` に保存します。
-既存v3の評価には `python -m src.evaluation.evaluate --config configs/conv_baseline.yaml` を使えます。
-モデル構造は同じなのでチェックポイント形式識別子はv3のままです。
-旧チェックポイントに重み設定がない場合は0として読み込みます。
-補助損失の効果を見るには再学習が必要です。0.1は比較実験の初期値で、改善を保証するものではありません。
-
-## 学習中の生成評価の軽量化
-
-`training.validation_generation_max_episodes: 256` により、CRPSなどの生成評価だけを
-固定した検証エピソード最大256本に限定します。検証seedを使って学習開始時に重複なしで選び、
-毎エポック同じ対象を使います。対象が256本以下なら全本数を使います。
-検証損失は全検証エピソードで計算し、モデル選択・早期終了の基準を維持します。
-生成本数（32本）、評価頻度（毎エポック）、学習終了後の評価コマンドの対象範囲は変更しません。
-設定省略時も上限256本です。正の整数を指定してください。
-ログの `validation_loss_episodes` と `validation_generation_episodes` で対象本数を確認できます。
-選んだデータセット内の窓インデックスはチェックポイントの `validation_generation_indices` に保存します。
-
-## 二階差分の分布
-
-`episode_second_delta_distribution.png` は、各系列内で
-`x[t+2] - 2*x[t+1] + x[t]` を計算し、元系列（緑）と個々の生成系列（青）の分布を比較します。
-全評価エピソード・全生成サンプルを使い、系列境界をまたぎません。中央値系列は使いません。
-共通のビンで確率密度に正規化し、外れ値を含めた全範囲を表示します。
-横軸の単位はdBで、時間間隔で割った二階微分ではありません。
-絶対値が大きいほど傾きの切り替わりが大きいことを示します。3ステップ未満では計算できない旨を表示します。
-
-## ns-3 / tranDataのRSRPを学習用に変換
-
-EpisodicDT-small直下で実行します。入力にはフォルダー名またはフォルダーのパスを指定できます。
+既存の学習を停止した後、次のコマンドで重みを引き継げます。
 
 ```bash
-python -m src.data.prepare_ns3 tranData-1790496613670328420
-# パスで指定する場合も同じ
-python -m src.data.prepare_ns3 NS3_5GLENA_modified/tranData-1790496613670328420
+OMP_NUM_THREADS=1 python -m src.train.train_mobility \
+  --config data/processed/training_dataset_next/training_fast.yaml \
+  --initialize-from data/processed/training_dataset_next/mobility_inflight_fixed/latest.pt
 ```
 
-上記2コマンドは同じ変換の別表記です。2回実行すると上書き防止のためエラーになります。
-既定の出力先は `data/processed/ns3/train/` で、入力run名・端末ID・連続区間番号ごとに
-`rsrp` 1列のCSVを作ります。値はdBmのままで、標準化と40ステップの切り出しは既存Datasetが行います。
-UEを混ぜず、`global_ue_id` ごとに `time_ms` を昇順に並べます。
-空欄/非有限RSRPは除去し、`run_manifest.json` の `samplePeriod` から想定する時間間隔を外れた箇所は別CSVにします。
-補間・ゼロ埋め・他端末との連結は行いません。同一UE・同時刻が重複する入力はエラーにします。
+保存先は `mobility_fast/`、初期検証とoptimizerは新規に作成します。上限81更新、停滞時は早期終了します。
+開始後の再開は同じ設定に `--resume` を指定します。
+詳細と別名ビルドの手順は[学習時間の短縮](docs/training_speed.md)を参照してください。
+
+## 拡散モデルの学習と危険経路生成
+
+拡散モデルの条件は、**UE番号を含まないシナリオ単位のイベント情報**に変更しました。
+HOF・ピンポン・RLFそれぞれの「任意のUEで発生」と「判定済み」を連結した6次元です。
+RLFは引き続き対象外です。UE番号が違っても同じシナリオ条件として学習・生成します。
+旧144次元の拡散モデルは使用できませんが、Encoder・Decoderと元データは再利用できます。
+新しいモデル形式はv5です。詳細は[シナリオ単位の条件](docs/scenario_diffusion.md)を参照してください。
+
+
+現在の通常版Encoder・Decoderを使い、**拡散評価8並列・追加学習候補の早期終了**を有効にするには次を使います。
 
 ```bash
-# 保存先・欠測扱いにする測定の古さを指定する例
-python -m src.data.prepare_ns3 tranData-別の実行 \
-  --output-dir data/processed/ns3 --max-age-ms 300
-
-# 独立した評価用シミュレーションを変換
-python -m src.data.prepare_ns3 tranData-評価用の実行 --partition evaluation
-
-# データを用意してから実行
-python -m src.train.train --config configs/ns3.yaml
-python -m src.evaluation.evaluate --config configs/ns3.yaml
+OMP_NUM_THREADS=1 python -m src.train.train_diffusion \
+  --config data/processed/training_dataset_next/training_diffusion_scenario.yaml \
+  --checkpoint data/processed/training_dataset_next/mobility_inflight_fixed/mobility.pt
 ```
 
-既定は測定の古さによる除去を行わず、有限RSRPを保持します。必要なら `--max-age-ms` を指定してください。
-manifestがない場合は `--sample-period-ms 200` などを明示します。0.2秒間隔の40点は約8秒相当で、
-従来の約0.5秒間隔データと同じ40点でも時間幅は異なります。この変換はリサンプリングしません。
+保存先は `diffusion_scenario/`。ノイズ除去学習から始める別実行です。
+既存の学習結果は上書きしません。検証は全期間を実行し、進捗を候補完了時と待機中に表示します。
+[高速化設定・表示の読み方](docs/diffusion_speed.md)を参照してください。
+このモデルで経路生成する場合は、下記の生成コマンドのチェックポイントを
+`data/processed/training_dataset_next/diffusion_scenario/diffusion.pt` に変更してください。
 
-学習用/最終評価用は `--partition train|evaluation` で指定し、変換時には自動分割しません。
-学習コードがtrain内の各連続系列を時間順80%/20%に分け、検証用にも使います。
-同じrunを両方に登録しないでください。評価用は独立した軌跡・シナリオを用意してください。
-NS3用の `configs/ns3.yaml` は既存の学習設定・結果を上書きしない別設定です。
 
-変換内容・除外行数・系列ごとの時刻範囲・作成可能な窓数は `data/processed/ns3/manifests/` のJSONに記録します。
-`--episode-length`（既定40）と `--validation-fraction`（既定0.2）はこの窓数確認に使い、学習設定に合わせます。
-短い系列も保存しますが、そのデータだけでは学習できない場合は警告します。
-例の `tranData-1790496613670328420` は5端末×9点なので40ステップの窓は0本です。
-学習・検証の両方に十分な連続観測を確保するため、まず50〜60秒以上の小規模シミュレーションで確認してください。
-
-## 基地局配置・移動経路を変えた一括データ生成
-
-`src/data/generate_ns3_batch.py` は、配置と移動経路のCSVを作成し、`tranData` を順番に実行して、
-RSRPを既存の生成モデル用CSVへ変換します。事前に `NS3_5GLENA_modified/utils/setup_trandata.sh`
-でシミュレータをビルドしてください。以下はプロジェクト直下で実行します。
 
 ```bash
-# 設定・入力CSV・学習設定だけを作成して確認
-python -m src.data.generate_ns3_batch --prepare-only
-# シミュレーションと変換を一括実行
-python -m src.data.generate_ns3_batch
-# 作成したデータで学習・評価（バッチ生成自体は学習しません）
-python -m src.train.train --config data/processed/ns3_batches/diverse_ho_dt05_mobility_v3/training_config.yaml
-python -m src.evaluation.evaluate --config data/processed/ns3_batches/diverse_ho_dt05_mobility_v3/training_config.yaml
+OMP_NUM_THREADS=1 python -m src.evaluation.generate_mobility \
+  --checkpoint data/processed/training_dataset_next/diffusion_scenario/diffusion.pt \
+  --event any_danger \
+  --count 30 \
+  --seed 123 \
+  --runs 201 202 203 \
+  --workers 8 \
+  --output-dir data/processed/training_dataset_next/evaluation_scenario_parallel_001
 ```
 
-設定ファイルは `configs/ns3_batch.yaml` です。既定では6シナリオ×送信電力3条件
-（24/30/36 dBm）×乱数run番号3条件の **54回** を逐次実行します。
-各回は150秒、記録間隔0.5秒、車3台・歩行者1台・静止端末1台です。
+30候補の経路を生成し、各候補を3種類の乱数条件で検証します。
+候補単位で最大8並列とし、各候補内のrun 201・202・203は順番に実行します。
+評価は早期終了せず全期間を実行します。`--workers` を省略するとチェックポイント内の
+`diffusion.simulation_workers`（なければ `training.simulation_workers`、両方なければ1）を使います。
+`--workers 1` で逐次実行できます。候補完了時と待機中の約30秒ごとに進捗を表示し、
+`summary.json` に並列数を記録します。既に起動中の評価には変更は反映されません。
+出力には属性別経路CSV、移動点配列の `routes.json`、潜在状態、経路図、NS-3ログ、評価結果を含みます。成功はシミュレーション結果で確認します。再実行時は未使用の出力先を指定してください。
 
-| シナリオ | 基地局配置 | 車の移動 | 用途 |
-|---|---|---|---|
-| approach | 横並び2局 | 基地局へ接近 | 学習 |
-| depart | 横並び2局 | 基地局から離れる | 学習 |
-| cross_cells | 三角形3局 | セル間を横断 | 学習 |
-| stop_and_return | 縦並び2局 | 移動・停止・引き返し | 学習 |
-| heldout_turn | 位置を変えた3局 | 折れ曲がる経路 | 独立評価 |
-| heldout_diagonal | 斜めに配置した2局 | 斜めに横断 | 独立評価 |
+## 現在の学習データ
 
-`sites` は `[x, y, 高さ]`（m）、`car_route` / `walker_route` は
-`[全実行時間に対する割合, x, y]` です。割合0が開始、1が終了で、点間を線形補間します。
-同じ位置を異なる時刻に指定すると停止区間になります。車は `car_offsets` の位置差で3台に展開します。
-これらは合成の配置・軌跡であり、実道路や車両の加減速制約を再現する設定ではありません。
-既定はUMi・3.5 GHz・20 MHz・Layer 2（RSRP測定、UDP負荷なし）、A3 RSRPハンドオーバー有効です。
-既定出力先は `data/processed/ns3_batches/diverse_ho_dt05_mobility_v2/` です。Hysteresisは3 dB、TimeToTriggerは256 ms
-（ライブラリ既定値）です。有効化だけで切替が起こるとは限らず、`ho_events.csv` と
-`ue_kpi.csv` の `serving_cell_id` を確認してください。60秒のdepart確認実行では切替イベントは0件でした。通信負荷も必要な場合は `layer: 3`
-へ変更できますが、RSRPのみのモデルで通信品質全体を評価できるわけではありません。
+UEは車両18・歩行者4・静止2、基地局は固定2局、制御はA3です。データ作成時は84条件を実行し、正常終了53条件を採用、異常終了31条件を除外しました。これは今回のNS-3修正前に作成したデータの集計で、修正後の再生成結果ではありません。
 
-小規模な確認や条件の絞り込みも可能です。
+| 区分 | 同期エピソード | 危険イベントあり | 既知の非危険例 |
+|---|---:|---:|---:|
+| 訓練 | 26 | 22 | 4 |
+| 検証 | 9 | 7 | 2 |
+| 評価 | 18 | 14 | 4 |
+| 合計 | 53 | 43 | 10 |
+
+集計元は `training_dataset_next/dataset_summary.json` です。同一経路の乱数違いや派生経路は同じ区分に固定します。HOFとピンポンは重複する場合があります。既存データのHOF原因は専用プリアンブル不足に偏っています。RLFは検出検証未完了のため学習報酬に使用していません。
+
+## 新しくデータを生成する
+
+修正後のNS-3でデータを作り直す場合は、既存データと分けて新しい保存先に出力します。
 
 ```bash
-# 全6シナリオの短時間動作確認。時間を2秒に縮めるため学習には使わない
-python -m src.data.generate_ns3_batch --smoke
-# 150秒の学習・独立評価データを各1条件ずつ生成
-python -m src.data.generate_ns3_batch \
-  --scenarios approach heldout_turn --powers 30 --runs 1 \
-  --batch-dir data/processed/ns3_batches/small_v1
+OMP_NUM_THREADS=1 python -m src.data.screen_training_expansion \
+  --config configs/training_dataset_v2.yaml \
+  --output-dir data/processed/training_dataset_inflight_screen \
+  --merged-dir data/processed/training_dataset_inflight --workers 3
 ```
 
-出力先には `inputs/`（配置・経路）、`raw/`（シミュレーション出力）、`logs/`、
-`processed/train/`、`processed/evaluation/`、`training_config.yaml` を保存します。
-`--prepare-only` を含む準備処理では、実際に使用する入力CSVからシナリオごとの
-配置・経路図 `figures/<シナリオ名>.png` も作成します。黒い三角は基地局（高さを併記）、
-色付きの線と矢印は車・歩行者の経路と進行方向、丸は開始点、Xは終了点、四角は静止端末です。
-停止区間には停止時刻を表示します。座標はm単位の平面図で、重なる軌跡は同じ位置に描画します。
-既存バッチでも、他の条件・入力が一致すれば `--prepare-only` で図を再作成できます。
-この場合、以前の実行計画のコードハッシュは保存したままです。コード変更後の本実行には
-従来どおり新しい `--batch-dir` を指定してください。
-`batch_plan.json` は条件と実行コード等のハッシュ、`batch_summary.json` は各実行の
-RSRP範囲・有効値率・変換後の窓数・実行時間を記録します。初期欠測と古い測定値
-（既定300 ms超）は変換時に除外し、時間の欠落をまたいで窓を作りません。
+候補を独立実行し、正常終了した条件を統合します。現在の設定では各候補の `simulation_run` に従って合計84回実行します。新しいデータセットで学習する場合は、その出力先の `training.yaml` を使用します。既存の `training_inflight_fixed.yaml` が自動で新データへ切り替わることはありません。
 
-同じコマンドを再実行すると、完了済みの出力ハッシュを確認してスキップします。
-条件・コード・ビルドを変更した場合は新しい `--batch-dir` を指定してください。
-失敗して途中出力が残った実行は自動上書きせず停止するため、ログを確認して新しい出力先で再実行します。
-
-同じ配置・経路の電力違い・乱数違いはすべて同じ用途に所属します。
-学習用系列内の前方80%を学習、後方20%を検証とし、独立評価には別の配置・経路を使います。
-重なる40ステップ窓は独立した実験ではないため、データ量は窓数に加えてシナリオ数・run数でも判断してください。
-
-現在のバッチ設定は0.5秒間隔・150秒です。車の走行速度を約21～36 km/h、歩行者を1.0～1.4 m/sに設定し、
-経路と基地局配置を調整しています。区間ごとの速さは `configs/ns3_batch.yaml` の注釈を参照してください。40点の窓の先頭から末尾までは19.5秒です。
-ns-3は離散イベントシミュレータであり、この記録間隔の変更は内部の無線処理周期の変更ではありません。
-
-## ns-3学習モデルをSUTDデータで評価
+入力CSV・実行計画・経路図だけを確認するには次を使います。
 
 ```bash
-python -m src.evaluation.evaluate --config configs/ns3_mobility_v2_on_sutd_5g.yaml
+python -m src.data.generate_handover_batch \
+  --config configs/training_dataset_v2.yaml \
+  --batch-dir data/processed/input_preview_inflight --prepare-only
 ```
 
-この評価専用設定は `diverse_ho_dt05_mobility_v2` の学習済みチェックポイントを読み込み、
-`data/processed/sutd_5g/evaluation/` の全40点窓を評価します。再学習は行わず、
-正規化の平均・標準偏差もns-3の学習時の値を使います。各窓から32本を生成し、
-結果は `results/ns3_mobility_v2_on_sutd_5g/` に保存します。
-これはSUTDの元エピソードをエンコーダに入力する条件付き再構成の評価です。
-未来予測や制御AIの通信品質評価ではありません。SUTDの実測時刻には揺らぎがありますが、
-既存の評価処理は再サンプリングせず連続40点を扱います。
+既存の保存先は上書きしません。設定・入力・コード・NS-3ビルドが変わったバッチは再開せず、新しい保存先を使用してください。
 
-評価時のエピソード比較図は、重複なしでランダムに選んだ最大10個の元エピソードについて、
-それぞれ最大8本の生成サンプルを表示します。保存名は `episodes.png`、
-`episodes_02.png`～`episodes_10.png` です。最初の図は従来と同じ選択方法で、
-選んだ元エピソードIDと生成サンプルIDは `episode_examples.json` に記録します。
-同じ評価データとseedでは同じ選択になり、元エピソードが10個未満ならその数だけ作成します。
+## CSV経路と経路エディタ
 
-### ハンドオーバー修正とv3データ（2026-09-28）
+`configs/training_dataset_v2.yaml` の `environment.route_csv_root` が共通フォルダ、`environment.scenarios` が使用するシナリオ一覧です。
 
-`tranData.cc` に基地局ごとのA3判定器の生成、RRCとの双方向SAP接続、
-接続前の初期化と終了後の破棄を追加しました。使用中の5G-LENA v4.1.1では
-`SetHandoverAlgorithmType` の指定だけでは判定器が接続されません。
-修正後は `run_manifest.json` の `handover_controller` が `A3_RSRP_explicit_SAP_v1` になります。
+```text
+data/scenarios/training_dataset_v2/<scenario>/
+  car.csv
+  walker.csv
+  static.csv
+```
 
-現在の `configs/ns3_batch.yaml` の出力先は `diverse_ho_dt05_mobility_v3` です。
-v3の54実行中45実行で計216回の開始・完了イベントを確認し、141本のUE系列で接続セルが変化しました。
-v2の既存データは自動ハンドオーバーが動いていない修正前データとして区別してください。
-
-今回の動作確認範囲は **Layer 2（RSRP測定）** です。
-`Layer=3` とハンドオーバーを組み合わせると、切替付近でNRのUL CQI処理
-`NrMacSchedulerNs3::DoSchedUlCqiInfoReq` 内の異常終了を確認しています。
-通信負荷を伴うハンドオーバーの利用には、この別問題の修正が必要です。
+CSV列は `timestamp,ue_id,location_x,location_y`、単位は秒・メートルです。UE属性ごとにIDを1から付け、各UEの時刻を0からシミュレーション終了時刻まで昇順で記載します。同じ座標を異なる時刻に指定すると停止になります。
 
 ```bash
-cd NS3_5GLENA_modified
-/usr/bin/python3 ns3 build tranData
-/usr/bin/python3 utils/test_trandata_handover.py
+python -m src.tools.route_editor --config configs/training_dataset_v2.yaml
 ```
 
-`Completed output missing/changed` は、完了記録と出力ファイルが一致しない場合の保護処理です。
-今回v3で欠けていた変換CSVとmanifestは、元のrawデータから復元し、元のハッシュと一致することを確認しました。
+ブラウザで固定基地局を確認し、UE属性・経路点・時刻を編集できます。速度範囲外では警告します。保存先は `data/scenarios/manual_routes/revisions/`、保存した経路を指す設定は `configs/routes_editor.yaml` です。終了は起動した端末で `Ctrl+C` を押します。
+
+## 保存先の詳細
+
+以下のデータセット内パスは `data/processed/training_dataset_next/` を基準とします。
+
+| パス | 内容 |
+|---|---|
+| `training_inflight_fixed.yaml` / `simulation.yaml` | 現在の学習設定／シミュレーション条件 |
+| `episodes/{train,validation,evaluation}/*.npz` | 通信特徴量・欠損マスク・イベントラベル |
+| `dataset_summary.json` / `screening.json` | 採用件数・区分別集計／候補の実行結果と原データ参照先 |
+| `mobility_inflight_fixed/mobility.pt` | 検証報酬が最良のEncoder・Decoder |
+| `mobility_inflight_fixed/latest.pt` | 再開用の最新重み・optimizer・更新数等 |
+| `mobility_inflight_fixed/history.json` | 更新ごとの報酬・検証履歴 |
+| `mobility_inflight_fixed/initialization.json` | 旧チェックポイントからの重み引き継ぎ記録 |
+| `mobility_inflight_fixed/rollouts/` | 更新中に生成した経路、NS-3出力、成功・失敗の記録 |
+| `mobility_inflight_fixed/validation*/` | 初期・定期検証の経路と実行結果 |
+| `mobility_inflight_fixed/metrics.json` | 学習完了時の集計 |
+| `diffusion_inflight_fixed/` | 拡散モデル、ノイズ除去学習履歴、NS-3による追加評価 |
+| `generated_inflight_fixed/` | 学習後に生成した候補と検証結果 |
+
+訓練データ作成時の生ログは、`screening.json` の `source_batch` が指すディレクトリにあります。現在は主に次の構造です。
+
+```text
+data/processed/training_dataset_next_screen/<candidate>/<scenario>/
+  raw/<run>/ue_kpi.csv        RSRP・SINR・位置などの通信情報
+  raw/<run>/ho_events.csv     HOイベント
+  inputs/                    実行時の経路CSV
+  figures/                   入力経路図
+  logs/                      実行ログ
+```
+
+学習中に生成した候補の通信ログは、各候補ディレクトリの `run_<番号>/ue_kpi.csv` にあります。異常終了時は `failure.json`、正常に評価できた場合は `result.json` を確認してください。
+
+学習時に原データのハッシュ検証と経路復元を行うため、`training_dataset_next_screen/` も必要です。NPZだけを残して参照先を削除しないでください。
+
+## 検査と資料
+
+```bash
+OMP_NUM_THREADS=1 python -m unittest discover -s tests -q
+python NS3_5GLENA_modified/utils/test_trandata_handover.py
+
+OMP_NUM_THREADS=1 python -m src.data.audit_training_expansion \
+  --batch-dir data/processed/training_dataset_next \
+  --candidates data/scenarios/training_dataset_v2/candidates.json
+```
+
+- [NS-3内部エラーの修正と重み引き継ぎ](docs/ns3_inflight_control_fix.md)
+- [並列数の比較結果](docs/parallel_simulation.md)
+- [データセット作成・監査の記録](docs/training_dataset_expansion.md)
+- [ミーティング資料のLaTeXソース](docs/meeting_overleaf/README.md)

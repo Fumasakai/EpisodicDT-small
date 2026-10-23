@@ -1,0 +1,353 @@
+\documentclass[a4paper,11pt]{article}
+\usepackage[margin=20mm]{geometry}
+\usepackage{CJKutf8}
+\usepackage{amsmath,amssymb,booktabs,array}
+\usepackage[dvipdfmx]{graphicx,xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\usepackage{fancyhdr}
+\definecolor{navy}{RGB}{24,56,91}
+\definecolor{pale}{RGB}{238,244,250}
+\definecolor{accent}{RGB}{0,112,119}
+\pagestyle{fancy}\fancyhf{}\fancyfoot[C]{\thepage\ / 10}
+\renewcommand{\headrulewidth}{0pt}
+\setlength{\parindent}{0pt}\setlength{\parskip}{7pt}
+\renewcommand{\arraystretch}{1.25}
+\newcommand{\pageheading}[2]{\clearpage{\Large\bfseries\color{navy}#1}\par{\color{accent}#2}\par\vspace{3mm}}
+\newcommand{\code}[1]{{\small\ttfamily\detokenize{#1}}}
+\newcommand{\note}[1]{\par\colorbox{pale}{\parbox{0.94\linewidth}{#1}}\par}
+\tikzset{box/.style={draw=navy,fill=pale,rounded corners,align=center,text width=42mm,minimum height=13mm,font=\small},flow/.style={-{Latex[length=2mm]},thick,draw=accent}}
+\begin{document}
+\begin{CJK*}{UTF8}{min}
+{\LARGE\bfseries\color{navy}危険通信シナリオの潜在生成}\par
+{\large EpisodicDT-small：現在の実装と学習の流れ}\par
+2026年10月23日版\quad ミーティング用説明資料
+
+\section*{1. 研究目的と全体構成}
+通信状態の時系列から潜在状態を学習し、HOF（ハンドオーバー失敗）またはピンポンHOが起きるUE群の移動経路を生成する。生成した経路の危険性は、NS-3による再シミュレーションで確認する。
+
+\begin{center}
+\begin{tikzpicture}[node distance=8mm and 8mm]
+\node[box] (input) {固定基地局・通信条件YAML\\属性別UE経路CSV};
+\node[box,right=of input] (sim) {NS-3 / 5G-LENA\\通信・HOイベントログ};
+\node[box,below=of sim] (data) {変換器\\同期エピソード・ラベル};
+\node[box,left=of data] (enc) {Encoder\\通信特徴量 $X\mapsto z$};
+\node[box,below=of enc] (dec) {Decoder\\$z\mapsto$ UE群の経路};
+\node[box,right=of dec] (reward) {NS-3で再実行\\イベントから報酬};
+\node[box,below=of dec] (diff) {条件付き拡散モデル\\学習済み潜在状態から新しい$z$};
+\draw[flow] (input)--(sim);\draw[flow](sim)--(data);
+\draw[flow](data)--(enc);\draw[flow](enc)--(dec);
+\draw[flow](dec)--(reward);
+\draw[flow](reward.south)--++(0,-5mm)-|node[pos=.2,below,font=\small]{方策勾配で同時学習}(dec.south east);
+\draw[flow](diff)--(dec);
+\end{tikzpicture}
+\end{center}
+
+\textbf{3つの主な構成要素}
+\begin{enumerate}
+\item 変換器：シミュレーション結果を特徴量・欠損マスク・イベントラベルへ変換。
+\item Encoder・Decoder：NS-3の報酬で同時学習し、危険な経路を生成。
+\item 潜在状態生成器：学習済みEncoderの潜在状態を条件付き拡散モデルで学習。
+\end{enumerate}
+\note{現在は分類器も、元の通信系列・元経路を復元する再構成損失も使用しない。成功条件は「対象イベントがどれか1台に発生すること」であり、全UEのイベント一致ではない。}
+
+\pageheading{2. シミュレーション条件と学習データ}{訓練用CSVから、イベントを付与した同期エピソードへ}
+\begin{tabular}{p{48mm}p{105mm}}
+\toprule
+項目 & 現在の条件\\\midrule
+UE構成 & 車両18台・歩行者4台・静止2台、計24台\\
+固定基地局 & $(0,0,10)$、$(400,0,10)$ m。YAMLで固定\\
+無線・伝搬 & 3.5 GHz、20 MHz、UMi、シャドウイング無効\\
+送信電力 & gNB 30 dBm、UE 23 dBm\\
+HO制御 & A3：ヒステリシス3 dB、TTT 256 ms\\
+トラフィック & 各UEの上下方向に200 byte、300 packet/s\\
+記録周期 & 100 ms。古い測定値は欠損として扱う\\
+\bottomrule
+\end{tabular}
+
+入力CSVの列は次のとおり（単位は秒・m）。\par
+\code{timestamp,ue_id,location_x,location_y}\par
+車両・歩行者・静止UEを別CSVに保存し、点間は直線補間する。同じ座標を連続時刻に指定すると停止になる。
+
+\textbf{ラベルはNS-3のトレースをPythonで解釈して作る。}
+\begin{itemize}
+\item HOF：\code{HandoverEndError}、プリアンブル不足、RACH試行上限、Leaving／Joining失敗のイベント。
+\item ピンポン：同じUEで成功した $A\to B$ の後、2秒以内に $B\to A$ が完了すること。HO開始だけでは陽性にしない。
+\item RLF：データ形式には項目があるが、検出検証が未完了のため現在の学習報酬には使用しない。
+\end{itemize}
+
+\begin{center}
+\begin{tabular}{lrrr}\toprule
+区分 & 同期エピソード & 危険あり & 既知の非危険\\\midrule
+訓練 &26&22&4\\検証 &9&7&2\\評価 &18&14&4\\\bottomrule
+\end{tabular}
+\end{center}
+84実行条件のうち正常終了53条件を採用した既存データ。同一経路の派生・乱数違いは同じ区分に配置する。この集計は今回のNS-3修正前に作成したデータに基づく。
+
+\note{原ログは \code{training_dataset_next_screen/}、統合した学習データと設定は \code{training_dataset_next/} にある。学習時も原ログを参照するので両方を保持する。}
+
+\pageheading{3. Encoder：通信エピソードから潜在状態へ}{UEごとの時間変化をTransformerで処理し、シナリオ全体を圧縮}
+入力を $X\in\mathbb{R}^{N\times T\times F}$、観測マスクを $M\in\{0,1\}^{N\times T\times F}$ とする。現在は $N=24$、$T=131$、$F=32$。
+
+\begin{tabular}{p{42mm}p{112mm}}\toprule
+特徴量 & 内容\\\midrule
+共通11特徴 & 速度・速度成分、接続セルのRSRP・SINR、測定経過時間、接続セル距離、上下の提供トラフィック\\
+セル別21特徴 & 最大3セル分。各セルのRSRP、経過時間、距離、相対位置3成分、接続中フラグ\\\bottomrule
+\end{tabular}
+
+実配置は2基地局だが、入力スキーマは最大3セル分を確保する。特徴量は訓練データから求めた統計で標準化し、検証・評価にも同じ統計を使用する。
+
+\begin{align*}
+\widetilde X &= [\operatorname{maskfill}(X,M,0),\ M],\\
+H_{u,t} &= W_{\rm in}\widetilde X_{u,t}+b_{\rm in}+P_t,\\
+G_u &= \operatorname{Transformer}(H_u),\\
+z &= f_\phi(X,M)=\operatorname{MLP}\bigl(\operatorname{Flatten}(G_1,\ldots,G_N)\bigr)
+       \in\mathbb{R}^{96}.
+\end{align*}
+$P_t$ は学習可能な時刻位置埋め込み。Transformerは各UEに共通で、UE間の情報は後段の全結合層で統合する。
+
+\begin{center}
+\begin{tikzpicture}[node distance=7mm]
+\node[box,text width=135mm] (a) {通信特徴量と欠損マスク：$[B,24,131,32]$を連結};
+\node[box,text width=135mm,below=of a] (b) {線形埋め込み32次元＋位置埋め込み\\各UEの時系列にTransformer（1層・4ヘッド）};
+\node[box,text width=135mm,below=of b] (c) {全UE・全時刻を平坦化 → 全結合128 → 潜在状態96次元};
+\draw[flow](a)--(b);\draw[flow](b)--(c);
+\end{tikzpicture}
+\end{center}
+
+\note{131点は3秒のwarmupと10秒の対象区間・終端を含む入れ物である。通信特徴量を入れるのは対象区間の100点。warmupの30点と終端1点はマスクで欠損扱いにする。イベントラベル自体はEncoderへの入力ではない。}
+
+\pageheading{4. Decoder：潜在状態からUE群の経路へ}{確率的な行動を生成し、速度・初期位置を制約した移動点列へ変換}
+Decoderの全結合層は $96\to128\to1944$。各UEについて、初期位置2成分・初期方位1成分と、26区間それぞれの旋回・速度・停止パラメータを生成する。
+\[
+ a\sim\pi_\theta(a\mid z)=\mathcal{N}(\mu_\theta(z),\,0.35^2I),\qquad
+ D(a)\in\mathbb{R}^{24\times27\times3}.
+\]
+$D(a)$ の末尾3成分は $(t,x,y)$。13秒間を0.5秒刻みの26区間・27点で表す。検証時は確率分布の平均 $a=\mu_\theta(z)$ を使用する。
+
+\textbf{初期位置の制約}
+\[
+ p_{u,0}=\ell+(h-\ell)\odot\sigma(a^{\rm pos}_u),\quad
+ x_0\in[-100,1100],\quad y_0\in[-200,200]\ \mathrm{m}.
+\]
+\textbf{速度・停止と経路の計算}
+\begin{align*}
+ \vartheta_{u,k}&=a^{\rm heading}_u+\sum_{j=1}^k a^{\rm turn}_{u,j},\\
+ v_{u,k}&=\bigl(v_u^{\min}+(v_u^{\max}-v_u^{\min})\sigma(a^{\rm speed}_{u,k})\bigr)
+       \mathbf{1}[a^{\rm stop}_{u,k}<0],\\
+ p_{u,k}&=p_{u,k-1}+0.5\,v_{u,k}
+                  (\cos\vartheta_{u,k},\sin\vartheta_{u,k}).
+\end{align*}
+$\sigma$ はシグモイド。停止を許さない属性では停止ゲートを使用しない。現在は全属性で停止を許可する。
+
+\begin{center}
+\begin{tabular}{lcc}\toprule
+UE属性 & 移動中の速度 & 停止時\\\midrule
+車両 &1--65 m/s&0 m/s\\歩行者 &0.3--2 m/s&0 m/s\\静止 &0 m/s&0 m/s\\\bottomrule
+\end{tabular}
+\end{center}
+
+出力は属性別の \code{car.csv}、\code{walker.csv}、\code{static.csv} と、UEごとの移動点配列を含む \code{routes.json}。元エピソードとUE数・属性・並び順は同じ。
+
+\note{速度と初期位置は変換式で制約するため、違反を罰する損失は不要。加速度・旋回角度、移動後の位置、道路との整合性、UE間衝突には制約を設けていない。現実性の保証はこの範囲に限られる。}
+
+\pageheading{5. Encoder・Decoderの同時学習}{NS-3を微分せず、REINFORCEで生成分布を更新}
+\begin{center}
+\begin{tikzpicture}[node distance=7mm]
+\node[box,text width=135mm](a){入力2エピソード → Encoder → 各潜在状態$z_i$};
+\node[box,text width=135mm,below=of a](b){各$z_i$から4行動を標本化 → 計8候補のUE経路};
+\node[box,text width=135mm,below=of b](c){NS-3を最大8並列で実行 → 有効な候補の報酬$R_{ij}$};
+\node[box,text width=135mm,below=of c](d){他候補との報酬差×対数確率 → Encoder・Decoderを更新};
+\draw[flow](a)--(b);\draw[flow](b)--(c);\draw[flow](c)--(d);
+\end{tikzpicture}
+\end{center}
+\[
+R=\begin{cases}
++1 & \exists u:\ \text{対象時間内にHOFまたはピンポンが確認された},\\
+-1 & \text{全UEで対象イベントがないと確認された}.
+\end{cases}
+\]
+異常終了・判定不能は報酬$-1$にせず無効とする。同じ入力に対する有効候補集合を$V_i$とし、$|V_i|\ge2$の入力だけを方策勾配に使う。
+\begin{align*}
+ b_{ij}&=\frac{1}{|V_i|-1}\sum_{k\in V_i,\ k\ne j}R_{ik},\\
+ \mathcal L_{\rm PG}&=-\frac{1}{\sum_i|V_i|}\sum_i\sum_{j\in V_i}
+ \operatorname{stopgrad}(R_{ij}-b_{ij})
+ \log\pi_\theta(a_{ij}\mid f_\phi(X_i,M_i)),\\
+ \mathcal L&=\mathcal L_{\rm PG}+10^{-4}\operatorname{mean}(z^2).
+\end{align*}
+使用しない静止UEの移動パラメータなどは対数確率の和から除く。AdamW、学習率$10^{-4}$、勾配ノルム上限1で更新する。十分な有効候補がなければ追加試行し、更新をスキップする場合もある。
+
+\note{同じ入力の有効候補が全て$+1$なら、$R_{ij}-b_{ij}=0$となり報酬由来の勾配は0。成功率が上限に達した後も、正則化だけで更新が続く可能性がある。元経路への近さは学習目標に含めない。}
+
+\pageheading{6. 条件付き潜在拡散モデルの学習}{Encoder・Decoderを固定し、潜在分布をノイズ除去で学ぶ}
+学習済みEncoderから訓練潜在状態$z_i$を抽出し、訓練集合の平均・標準偏差で正規化する。
+\[
+ h_i=(z_i-\mu_z)/s_z,\qquad s_z\ge10^{-3}.
+\]
+条件はUE番号を含めず、イベントごとに任意のUEで発生したかを集約する。
+\[
+ q_e=\bigvee_u(Y_{u,e}\land K_{u,e}),\qquad
+ k_e=q_e\lor\bigwedge_u K_{u,e},\qquad c=[q,k]\in\{0,1\}^{6}.
+\]
+現在RLFのマスクは学習対象外。イベント条件は拡散モデルに入力するが、NS-3報酬は依然として「任意のUEのHOFまたはピンポン」である。
+
+\textbf{前向きのノイズ付加と学習損失}
+\begin{align*}
+ t&\sim\operatorname{Uniform}\{0,\ldots,99\},\quad \epsilon\sim\mathcal N(0,I),\\
+ h_t&=\sqrt{\bar\alpha_t}\,h_0+\sqrt{1-\bar\alpha_t}\,\epsilon,\qquad
+ \bar\alpha_t=\prod_{s=0}^t(1-\beta_s),\\
+ \mathcal L_{\rm noise}&=\mathbb E\bigl[\|\epsilon-\epsilon_\psi(h_t,t,c)\|_2^2/96\bigr].
+\end{align*}
+コサイン型のノイズスケジュールを使用する。予測器は潜在状態・時刻埋め込み32次元・条件を連結したMLP（隠れ128次元、2層）。AdamW、学習率$10^{-3}$、バッチ32で600回の最適化更新を行う。設定名は \code{epochs} だが、実装では1回につき1バッチの更新である。
+
+\textbf{生成方法}
+\begin{itemize}
+\item ノイズ開始：$h_{99}\sim\mathcal N(0,I)$から逆拡散する。
+\item 現在の既定値：条件が完全一致する訓練$h_0$を選び、$t=\operatorname{round}(0.15\times99)=15$までノイズを加え、逆拡散する。
+\item 完全一致する訓練例がなければ、指定条件を変えずにノイズ開始へ切り替える。検証潜在状態を生成の出発点にはしない。
+\end{itemize}
+
+\note{逆拡散でノイズを除去することと、元の通信エピソード・元経路を再構成することは別である。現在の実装はイベント指定の厳密一致を保証せず、再現性能はシミュレーションで確認する。}
+
+\pageheading{7. 拡散モデルへのNS-3フィードバック}{危険イベントを確認した潜在状態を重視して追加学習}
+\begin{center}
+\begin{tikzpicture}[node distance=7mm]
+\node[box,text width=135mm](a){イベント条件$c$ → 拡散生成$\widehat h$ → $\widehat z=\widehat h\,s_z+\mu_z$};
+\node[box,text width=135mm,below=of a](b){固定Decoderの平均行動 → 移動経路 → NS-3 → 報酬$R$};
+\node[box,text width=135mm,below=of b](c){潜在状態・条件・報酬を蓄積 → 報酬重み付きノイズ除去学習};
+\draw[flow](a)--(b);\draw[flow](b)--(c);
+\end{tikzpicture}
+\end{center}
+1ラウンドで24候補を生成・実行し、正常に評価できた潜在状態を蓄積する。5ラウンド、各ラウンド100回の追加最適化を行う。NS-3による候補評価は最大8並列。高速化設定では追加学習候補だけ危険確定時に終了する。
+
+同じ条件$c$のリプレイ集合を$G_c$として、重みを定める。
+\[
+ w_j=|G_c|\frac{\exp(R_j/\tau)}{\sum_{k\in G_c}\exp(R_k/\tau)},
+ \qquad \tau=0.5.
+\]
+\[
+ \mathcal L_{\rm feedback}
+ =\frac{1}{B}\sum_{j\in\mathcal B}w_j\,\ell_{\rm noise}(\widehat h_j,c_j)
+ +\lambda_{\rm anchor}\frac{1}{B}\sum_{i\in\mathcal T}\ell_{\rm noise}(h_i,c_i),
+ \qquad\lambda_{\rm anchor}=1.
+\]
+第1項は危険な生成例を相対的に重視する。第2項は元の訓練潜在分布からの過度な変化を抑える。更新対象は拡散モデルだけで、Encoder・Decoderは固定する。
+
+\textbf{モデルの選択と注意点}
+\begin{itemize}
+\item 初期ノイズ除去学習では検証ノイズMSEが最小の状態を選ぶ。
+\item 追加学習では固定した検証乱数条件のNS-3報酬で最良状態を選ぶ。
+\item 同じ条件の全候補が同じ報酬なら$w_j=1$であり、報酬による優劣は付かない。
+\item 拡散モデルの検証では現在、有効候補だけの平均を使う。不完全な検証の扱いは、同時学習側とまだ統一されていない。
+\end{itemize}
+\note{発生UEが異なっても同じシナリオ条件として扱う。現在の検証9エピソードはすべて訓練集合に同じ条件がある。将来、未出の条件があればノイズ開始へ切り替える。旧144次元の拡散モデルは再学習が必要だが、Encoder・Decoderは再利用できる。}
+
+\pageheading{8. 今回の評価結果：経路の多様性を獲得できなかった}{生成30候補がほぼ同一経路となり、研究目的を十分に達成できていない}
+\textbf{評価対象}：\code{evaluation_scenario_001}。30候補、生成seed 123、NS-3のrun 201・202・203。初期位置から終端まで、同じUE・同じ時刻の座標を比較した。
+
+\begin{tabular}{p{83mm}p{69mm}}\toprule
+確認項目 & 実測結果\\\midrule
+訓練入力の種類 &26件すべて異なる\\
+Encoder出力の次元別標準偏差の平均 &約$2.7\times10^{-8}$\\
+生成30候補の候補間平均経路距離 &約$0.0022$ m（2.2 mm）\\
+有効な評価候補／無効候補 &23候補／7候補\\
+有効候補の危険イベント成功率 &19/69実行＝約27.5\%\\\bottomrule
+\end{tabular}
+
+経路距離は全候補対について、対応する24UE・27時刻の2次元ユークリッド距離を平均した値。潜在状態を保存済みDecoderで再変換して計測した。無効7候補は成功率の分母から除外しており、27.5\%だけで全体性能を判断しない。
+
+\begin{center}
+\begin{tikzpicture}[node distance=4mm]
+\node[box,text width=42mm] (a) {異なる26入力\\通信エピソード};
+\node[box,text width=42mm,right=of a] (b) {ほぼ一定の$z$\\Encoderで縮退};
+\node[box,text width=42mm,right=of b] (c) {ほぼ同じ移動経路\\平均Decoder出力};
+\draw[flow](a)--(b);\draw[flow](b)--(c);
+\end{tikzpicture}
+\end{center}
+
+\textbf{確認できた事実と、原因として考えられる仕組み}
+\begin{enumerate}
+\item \textbf{潜在状態が既に縮退している。} 入力は異なるがEncoder出力はほぼ同じ。拡散モデルはその狭い分布を学ぶため、拡散だけで多様性を回復するのは難しい。
+\item \textbf{成功報酬が飽和している。} 同時学習81更新中76更新が平均$+1$。同じ入力の全候補が成功すると方策勾配は0。多様性・入力情報の保持を直接促す損失はなく、潜在状態の大きさを抑える正則化は残る。
+\item \textbf{生成時の経路変化が小さい。} 評価はDecoderの平均行動を使用し、学習時の行動ノイズは加えない。アンカー近傍からの拡散生成も変化を限定する。
+\item \textbf{追加学習で多様な候補が優先されない。} 拡散の全5ラウンドで訓練平均報酬$+1$。同条件で報酬が同じなら重みは一様で、異なる経路を残す動機がない。
+\end{enumerate}
+\note{主な観測は「Encoderの表現縮退と、生成経路の実質的な同一化」。各設計要因が縮退をどの程度引き起こしたかは、比較実験で切り分ける必要がある。学習・検証報酬$+1$は、多様性や未知乱数条件への汎化を保証しなかった。}
+
+\pageheading{9. 改善案と次の比較実験}{危険イベントを維持しながら、多様な潜在状態・経路を生成する}
+\textbf{優先1：Encoderの縮退とDecoderの入力無視を防ぐ}
+
+潜在状態の次元別分散を維持する損失を候補とする。例えば、バッチ内分散について
+\[
+ \mathcal L_{\rm var}=\frac{1}{d}\sum_{k=1}^{d}
+ \max\!\left(0,\gamma-\sqrt{\operatorname{Var}_{i}(z_{i,k})+\epsilon}\right).
+\]
+$\gamma$は目標標準偏差、$\epsilon$は数値安定化項。現在の入力2件だけでは分散推定が不安定なため、補助損失にはより多くの訓練入力を使う。潜在ノルム正則化の重みも比較する。
+
+\textbf{分散だけを大きくしても経路が変わらなければ不十分}なので、異なる$z$に対するDecoder経路差も測定し、同時に改善する。元経路に似せる再構成を必須にはしない。
+
+\textbf{優先2：危険な経路同士の多様性を学習目標に加える}
+
+NS-3で危険を確認した経路を蓄積し、既存の成功経路から十分に異なる候補を評価する。初期位置の差だけでなく、初期位置を揃えた軌跡形状、訪問セル、HO発生時刻などを分けて測る。単にノイズを大きくして危険性を失う解を避ける。
+
+\textbf{優先3：生成時のランダム性を比較する}
+
+平均行動と確率的なDecoder行動、アンカー開始とノイズ開始、拡散のノイズ強度を同じ条件で比較する。行動ノイズで経路が変わることと、多様な危険経路を学べたことは区別する。
+
+\begin{tabular}{p{57mm}p{95mm}}\toprule
+比較する段階 & 主な確認項目\\\midrule
+現状のモデル & 成功率、無効率、経路差、潜在分散の基準値\\
+潜在分散制約を追加 & $z$の分散とDecoder出力の違いが共に増えるか\\
+成功経路の多様性を追加 & 危険性を保って異なる成功経路が増えるか\\
+生成時の乱数・強度を変更 & 多様性と成功率の両方を維持できるか\\\bottomrule
+\end{tabular}
+
+モデル選択にも危険成功率と多様性を併用し、最終評価は選択に使わないデータ・乱数条件で行う。HOF・ピンポン別の成功率と無効率を併記する。拡散モデルの不完全な検証の扱いも統一する。
+
+\note{これらは改善案であり、まだ実装・効果検証していない。次はEncoder・Decoderの学習を見直し、その潜在分布で拡散モデルを再学習する。8並列と訓練候補の早期終了は計算時間短縮に使い、性能評価は全期間を実行する。}
+
+\pageheading{10. 実行手順と保存先}{現在の設定を使い、モデルとシミュレータの由来を保持する}
+すべてプロジェクト直下・\code{episodicdt} 環境で実行する。学習用設定は同時学習用と拡散モデル用の2つに統一した。
+
+\textbf{A. 高速化版Encoder・Decoderを再開}
+\begin{verbatim}
+OMP_NUM_THREADS=1 python -m src.train.train_mobility \
+ --config data/processed/training_dataset_next/training_fast.yaml \
+ --resume
+\end{verbatim}
+\textbf{B. 高速化版を初めて開始（通常版の重みを引き継ぐ）}
+\begin{verbatim}
+OMP_NUM_THREADS=1 python -m src.train.train_mobility \
+ --config data/processed/training_dataset_next/training_fast.yaml \
+ --initialize-from \
+ data/processed/training_dataset_next/mobility_inflight_fixed/latest.pt
+\end{verbatim}
+通常版の学習を停止してから起動する。新規保存先は\code{mobility_fast/}。
+optimizerを初期化し初期検証をやり直す。開始済みの高速化版は同じ設定で\code{--resume}を使う。
+
+\textbf{C. 通常版の学習済みモデルから拡散モデルを学習}
+\begin{verbatim}
+OMP_NUM_THREADS=1 python -m src.train.train_diffusion \
+ --config data/processed/training_dataset_next/training_diffusion_scenario.yaml \
+ --checkpoint \
+ data/processed/training_dataset_next/mobility_inflight_fixed/mobility.pt
+\end{verbatim}
+新しく学習したモデルを使う場合も拡散用設定を使い、モデルのみ\code{mobility_fast/mobility.pt}に変更する。拡散学習の検証はどちらも全期間実行する。
+
+\begin{tabular}{p{64mm}p{89mm}}\toprule
+保存先（データセット直下） & 内容\\\midrule
+\code{episodes/} & 訓練・検証・評価のNPZ\\
+\code{mobility_inflight_fixed/} & 通常版のモデル、最新再開状態、履歴\\
+\code{mobility_fast/} & 高速化版のモデル・履歴・実行結果\\
+\code{diffusion_scenario/} & シナリオ条件の拡散モデル・追加学習記録\\
+\code{diffusion_fast/} & 高速化版からの拡散モデル・記録\\\bottomrule
+\end{tabular}
+
+\small
+モデル本体：\code{src/models/mobility.py}、\code{latent_diffusion.py}。\par
+学習：\code{src/train/train_mobility.py}、\code{train_diffusion.py}。\par
+実行・報酬：\code{src/simulation/runner.py}。\par
+詳細はREADME、\code{docs/training_speed.md}、\par
+\code{docs/diffusion_anchor_fix.md}を参照。
+\end{CJK*}
+\end{document}

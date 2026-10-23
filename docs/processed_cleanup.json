@@ -1,0 +1,150 @@
+{
+  "date": "2026-10-22T23:31:56.748623",
+  "deleted": [
+    {
+      "path": "data/processed/validation120_phy_diagnosis",
+      "bytes": 272541,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/ns3_rlc_tx_diagnosis",
+      "bytes": 331716,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/validation120_serial_replay",
+      "bytes": 273895,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/ns3_packet_diagnosis_details",
+      "bytes": 311194,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/training_dataset_v2",
+      "bytes": 159741430,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/validation120_rx_control_fixed",
+      "bytes": 1022410,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/validation120_alloc_diagnosis",
+      "bytes": 274942,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/ns3_parallel_benchmark",
+      "bytes": 31090138,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/training_speed_verification",
+      "bytes": 3134572,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/ns3_inflight_control_regression",
+      "bytes": 8134121,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/ns3_rlc_tx_diagnosis2",
+      "bytes": 333573,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/ns3_rx_isolate",
+      "bytes": 314020,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/ns3_phy_fix_case4",
+      "bytes": 965493,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/ns3_rx_diagnosis",
+      "bytes": 963701,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/validation120_verified_fixed",
+      "bytes": 16473188,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/ns3_wrap_fix_case0",
+      "bytes": 311184,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/validation120_srs_diagnosis",
+      "bytes": 278633,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/ns3_crash_diagnosis",
+      "bytes": 174039,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/validation120_grants_diagnosis",
+      "bytes": 277672,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/ns3_training_regression_fixed",
+      "bytes": 8137102,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/ns3_packet_diagnosis",
+      "bytes": 310984,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/ns3_rlc_diagnosis",
+      "bytes": 329057,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/diffusion_parallel_verification",
+      "bytes": 831903,
+      "reason": "obsolete dataset or diagnostic run"
+    },
+    {
+      "path": "data/processed/training_dataset_next/mobility",
+      "bytes": 251773350,
+      "reason": "obsolete model"
+    },
+    {
+      "path": "data/processed/training_dataset_next/mobility_fixed",
+      "bytes": 1394293358,
+      "reason": "obsolete model"
+    },
+    {
+      "path": "data/processed/training_dataset_next/diffusion_inflight_fixed",
+      "bytes": 141710575,
+      "reason": "obsolete model"
+    },
+    {
+      "path": "data/processed/training_dataset_next/diffusion_inflight_fixed_failed_anchor_20261022_191432",
+      "bytes": 261157,
+      "reason": "obsolete model"
+    },
+    {
+      "path": "data/processed/training_dataset_next/diffusion_parallel_fast",
+      "bytes": 206855683,
+      "reason": "obsolete model"
+    }
+  ],
+  "retained": [
+    "data/processed/training_dataset_next",
+    "data/processed/training_dataset_next_screen"
+  ],
+  "bytes_removed": 2229181631
+}

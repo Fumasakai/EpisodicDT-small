@@ -1,0 +1,760 @@
+{
+  "candidates": [
+    {
+      "name": "converging_000_original_rep1",
+      "base_scenario": "converging_000_original",
+      "parent": "converging_000",
+      "family": "original",
+      "partition": "train",
+      "group": "independent_20261021_000",
+      "run": 1
+    },
+    {
+      "name": "converging_000_original_rep2",
+      "base_scenario": "converging_000_original",
+      "parent": "converging_000",
+      "family": "original",
+      "partition": "train",
+      "group": "independent_20261021_000",
+      "run": 2
+    },
+    {
+      "name": "converging_000_spread_rep1",
+      "base_scenario": "converging_000_spread",
+      "parent": "converging_000",
+      "family": "spread",
+      "partition": "train",
+      "group": "independent_20261021_000",
+      "run": 1
+    },
+    {
+      "name": "converging_000_spread_rep2",
+      "base_scenario": "converging_000_spread",
+      "parent": "converging_000",
+      "family": "spread",
+      "partition": "train",
+      "group": "independent_20261021_000",
+      "run": 2
+    },
+    {
+      "name": "converging_001_original_rep1",
+      "base_scenario": "converging_001_original",
+      "parent": "converging_001",
+      "family": "original",
+      "partition": "train",
+      "group": "independent_20261021_001",
+      "run": 1
+    },
+    {
+      "name": "converging_001_original_rep2",
+      "base_scenario": "converging_001_original",
+      "parent": "converging_001",
+      "family": "original",
+      "partition": "train",
+      "group": "independent_20261021_001",
+      "run": 2
+    },
+    {
+      "name": "converging_001_spread_rep1",
+      "base_scenario": "converging_001_spread",
+      "parent": "converging_001",
+      "family": "spread",
+      "partition": "train",
+      "group": "independent_20261021_001",
+      "run": 1
+    },
+    {
+      "name": "converging_001_spread_rep2",
+      "base_scenario": "converging_001_spread",
+      "parent": "converging_001",
+      "family": "spread",
+      "partition": "train",
+      "group": "independent_20261021_001",
+      "run": 2
+    },
+    {
+      "name": "dispersed_001_original_rep1",
+      "base_scenario": "dispersed_001_original",
+      "parent": "dispersed_001",
+      "family": "original",
+      "partition": "train",
+      "group": "independent_20261021_001",
+      "run": 1
+    },
+    {
+      "name": "dispersed_001_original_rep2",
+      "base_scenario": "dispersed_001_original",
+      "parent": "dispersed_001",
+      "family": "original",
+      "partition": "train",
+      "group": "independent_20261021_001",
+      "run": 2
+    },
+    {
+      "name": "dispersed_001_spread_rep1",
+      "base_scenario": "dispersed_001_spread",
+      "parent": "dispersed_001",
+      "family": "spread",
+      "partition": "train",
+      "group": "independent_20261021_001",
+      "run": 1
+    },
+    {
+      "name": "dispersed_001_spread_rep2",
+      "base_scenario": "dispersed_001_spread",
+      "parent": "dispersed_001",
+      "family": "spread",
+      "partition": "train",
+      "group": "independent_20261021_001",
+      "run": 2
+    },
+    {
+      "name": "converging_002_original_rep1",
+      "base_scenario": "converging_002_original",
+      "parent": "converging_002",
+      "family": "original",
+      "partition": "train",
+      "group": "independent_20261021_002",
+      "run": 1
+    },
+    {
+      "name": "converging_002_original_rep2",
+      "base_scenario": "converging_002_original",
+      "parent": "converging_002",
+      "family": "original",
+      "partition": "train",
+      "group": "independent_20261021_002",
+      "run": 2
+    },
+    {
+      "name": "converging_002_spread_rep1",
+      "base_scenario": "converging_002_spread",
+      "parent": "converging_002",
+      "family": "spread",
+      "partition": "train",
+      "group": "independent_20261021_002",
+      "run": 1
+    },
+    {
+      "name": "converging_002_spread_rep2",
+      "base_scenario": "converging_002_spread",
+      "parent": "converging_002",
+      "family": "spread",
+      "partition": "train",
+      "group": "independent_20261021_002",
+      "run": 2
+    },
+    {
+      "name": "dispersed_002_original_rep1",
+      "base_scenario": "dispersed_002_original",
+      "parent": "dispersed_002",
+      "family": "original",
+      "partition": "train",
+      "group": "independent_20261021_002",
+      "run": 1
+    },
+    {
+      "name": "dispersed_002_original_rep2",
+      "base_scenario": "dispersed_002_original",
+      "parent": "dispersed_002",
+      "family": "original",
+      "partition": "train",
+      "group": "independent_20261021_002",
+      "run": 2
+    },
+    {
+      "name": "dispersed_002_spread_rep1",
+      "base_scenario": "dispersed_002_spread",
+      "parent": "dispersed_002",
+      "family": "spread",
+      "partition": "train",
+      "group": "independent_20261021_002",
+      "run": 1
+    },
+    {
+      "name": "dispersed_002_spread_rep2",
+      "base_scenario": "dispersed_002_spread",
+      "parent": "dispersed_002",
+      "family": "spread",
+      "partition": "train",
+      "group": "independent_20261021_002",
+      "run": 2
+    },
+    {
+      "name": "dispersed_003_original_rep1",
+      "base_scenario": "dispersed_003_original",
+      "parent": "dispersed_003",
+      "family": "original",
+      "partition": "train",
+      "group": "independent_20261021_003",
+      "run": 1
+    },
+    {
+      "name": "dispersed_003_original_rep2",
+      "base_scenario": "dispersed_003_original",
+      "parent": "dispersed_003",
+      "family": "original",
+      "partition": "train",
+      "group": "independent_20261021_003",
+      "run": 2
+    },
+    {
+      "name": "dispersed_003_spread_rep1",
+      "base_scenario": "dispersed_003_spread",
+      "parent": "dispersed_003",
+      "family": "spread",
+      "partition": "train",
+      "group": "independent_20261021_003",
+      "run": 1
+    },
+    {
+      "name": "dispersed_003_spread_rep2",
+      "base_scenario": "dispersed_003_spread",
+      "parent": "dispersed_003",
+      "family": "spread",
+      "partition": "train",
+      "group": "independent_20261021_003",
+      "run": 2
+    },
+    {
+      "name": "converging_004_original_rep1",
+      "base_scenario": "converging_004_original",
+      "parent": "converging_004",
+      "family": "original",
+      "partition": "validation",
+      "group": "independent_20261021_004",
+      "run": 1
+    },
+    {
+      "name": "converging_004_original_rep2",
+      "base_scenario": "converging_004_original",
+      "parent": "converging_004",
+      "family": "original",
+      "partition": "validation",
+      "group": "independent_20261021_004",
+      "run": 2
+    },
+    {
+      "name": "converging_004_spread_rep1",
+      "base_scenario": "converging_004_spread",
+      "parent": "converging_004",
+      "family": "spread",
+      "partition": "validation",
+      "group": "independent_20261021_004",
+      "run": 1
+    },
+    {
+      "name": "converging_004_spread_rep2",
+      "base_scenario": "converging_004_spread",
+      "parent": "converging_004",
+      "family": "spread",
+      "partition": "validation",
+      "group": "independent_20261021_004",
+      "run": 2
+    },
+    {
+      "name": "dispersed_004_original_rep1",
+      "base_scenario": "dispersed_004_original",
+      "parent": "dispersed_004",
+      "family": "original",
+      "partition": "validation",
+      "group": "independent_20261021_004",
+      "run": 1
+    },
+    {
+      "name": "dispersed_004_original_rep2",
+      "base_scenario": "dispersed_004_original",
+      "parent": "dispersed_004",
+      "family": "original",
+      "partition": "validation",
+      "group": "independent_20261021_004",
+      "run": 2
+    },
+    {
+      "name": "dispersed_004_spread_rep1",
+      "base_scenario": "dispersed_004_spread",
+      "parent": "dispersed_004",
+      "family": "spread",
+      "partition": "validation",
+      "group": "independent_20261021_004",
+      "run": 1
+    },
+    {
+      "name": "dispersed_004_spread_rep2",
+      "base_scenario": "dispersed_004_spread",
+      "parent": "dispersed_004",
+      "family": "spread",
+      "partition": "validation",
+      "group": "independent_20261021_004",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_000_original_rep1",
+      "base_scenario": "heldout_converging_000_original",
+      "parent": "heldout_converging_000",
+      "family": "original",
+      "partition": "evaluation",
+      "group": "independent_20261023_000",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_000_original_rep2",
+      "base_scenario": "heldout_converging_000_original",
+      "parent": "heldout_converging_000",
+      "family": "original",
+      "partition": "evaluation",
+      "group": "independent_20261023_000",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_000_spread_rep1",
+      "base_scenario": "heldout_converging_000_spread",
+      "parent": "heldout_converging_000",
+      "family": "spread",
+      "partition": "evaluation",
+      "group": "independent_20261023_000",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_000_spread_rep2",
+      "base_scenario": "heldout_converging_000_spread",
+      "parent": "heldout_converging_000",
+      "family": "spread",
+      "partition": "evaluation",
+      "group": "independent_20261023_000",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_001_original_rep1",
+      "base_scenario": "heldout_converging_001_original",
+      "parent": "heldout_converging_001",
+      "family": "original",
+      "partition": "evaluation",
+      "group": "independent_20261023_001",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_001_original_rep2",
+      "base_scenario": "heldout_converging_001_original",
+      "parent": "heldout_converging_001",
+      "family": "original",
+      "partition": "evaluation",
+      "group": "independent_20261023_001",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_001_spread_rep1",
+      "base_scenario": "heldout_converging_001_spread",
+      "parent": "heldout_converging_001",
+      "family": "spread",
+      "partition": "evaluation",
+      "group": "independent_20261023_001",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_001_spread_rep2",
+      "base_scenario": "heldout_converging_001_spread",
+      "parent": "heldout_converging_001",
+      "family": "spread",
+      "partition": "evaluation",
+      "group": "independent_20261023_001",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_002_original_rep1",
+      "base_scenario": "heldout_converging_002_original",
+      "parent": "heldout_converging_002",
+      "family": "original",
+      "partition": "evaluation",
+      "group": "independent_20261023_002",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_002_original_rep2",
+      "base_scenario": "heldout_converging_002_original",
+      "parent": "heldout_converging_002",
+      "family": "original",
+      "partition": "evaluation",
+      "group": "independent_20261023_002",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_002_spread_rep1",
+      "base_scenario": "heldout_converging_002_spread",
+      "parent": "heldout_converging_002",
+      "family": "spread",
+      "partition": "evaluation",
+      "group": "independent_20261023_002",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_002_spread_rep2",
+      "base_scenario": "heldout_converging_002_spread",
+      "parent": "heldout_converging_002",
+      "family": "spread",
+      "partition": "evaluation",
+      "group": "independent_20261023_002",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_003_original_rep1",
+      "base_scenario": "heldout_converging_003_original",
+      "parent": "heldout_converging_003",
+      "family": "original",
+      "partition": "evaluation",
+      "group": "independent_20261023_003",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_003_original_rep2",
+      "base_scenario": "heldout_converging_003_original",
+      "parent": "heldout_converging_003",
+      "family": "original",
+      "partition": "evaluation",
+      "group": "independent_20261023_003",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_003_spread_rep1",
+      "base_scenario": "heldout_converging_003_spread",
+      "parent": "heldout_converging_003",
+      "family": "spread",
+      "partition": "evaluation",
+      "group": "independent_20261023_003",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_003_spread_rep2",
+      "base_scenario": "heldout_converging_003_spread",
+      "parent": "heldout_converging_003",
+      "family": "spread",
+      "partition": "evaluation",
+      "group": "independent_20261023_003",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_004_original_rep1",
+      "base_scenario": "heldout_converging_004_original",
+      "parent": "heldout_converging_004",
+      "family": "original",
+      "partition": "evaluation",
+      "group": "independent_20261023_004",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_004_original_rep2",
+      "base_scenario": "heldout_converging_004_original",
+      "parent": "heldout_converging_004",
+      "family": "original",
+      "partition": "evaluation",
+      "group": "independent_20261023_004",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_004_spread_rep1",
+      "base_scenario": "heldout_converging_004_spread",
+      "parent": "heldout_converging_004",
+      "family": "spread",
+      "partition": "evaluation",
+      "group": "independent_20261023_004",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_004_spread_rep2",
+      "base_scenario": "heldout_converging_004_spread",
+      "parent": "heldout_converging_004",
+      "family": "spread",
+      "partition": "evaluation",
+      "group": "independent_20261023_004",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_005_original_rep1",
+      "base_scenario": "heldout_converging_005_original",
+      "parent": "heldout_converging_005",
+      "family": "original",
+      "partition": "evaluation",
+      "group": "independent_20261023_005",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_005_original_rep2",
+      "base_scenario": "heldout_converging_005_original",
+      "parent": "heldout_converging_005",
+      "family": "original",
+      "partition": "evaluation",
+      "group": "independent_20261023_005",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_005_spread_rep1",
+      "base_scenario": "heldout_converging_005_spread",
+      "parent": "heldout_converging_005",
+      "family": "spread",
+      "partition": "evaluation",
+      "group": "independent_20261023_005",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_005_spread_rep2",
+      "base_scenario": "heldout_converging_005_spread",
+      "parent": "heldout_converging_005",
+      "family": "spread",
+      "partition": "evaluation",
+      "group": "independent_20261023_005",
+      "run": 2
+    },
+    {
+      "name": "oscillation_000_rep1",
+      "base_scenario": "oscillation_000",
+      "parent": "oscillation_000",
+      "family": "oscillation",
+      "partition": "train",
+      "group": "oscillation_20261024_0",
+      "run": 1
+    },
+    {
+      "name": "oscillation_000_rep2",
+      "base_scenario": "oscillation_000",
+      "parent": "oscillation_000",
+      "family": "oscillation",
+      "partition": "train",
+      "group": "oscillation_20261024_0",
+      "run": 2
+    },
+    {
+      "name": "oscillation_001_rep1",
+      "base_scenario": "oscillation_001",
+      "parent": "oscillation_001",
+      "family": "oscillation",
+      "partition": "train",
+      "group": "oscillation_20261024_1",
+      "run": 1
+    },
+    {
+      "name": "oscillation_001_rep2",
+      "base_scenario": "oscillation_001",
+      "parent": "oscillation_001",
+      "family": "oscillation",
+      "partition": "train",
+      "group": "oscillation_20261024_1",
+      "run": 2
+    },
+    {
+      "name": "oscillation_002_rep1",
+      "base_scenario": "oscillation_002",
+      "parent": "oscillation_002",
+      "family": "oscillation",
+      "partition": "train",
+      "group": "oscillation_20261024_2",
+      "run": 1
+    },
+    {
+      "name": "oscillation_002_rep2",
+      "base_scenario": "oscillation_002",
+      "parent": "oscillation_002",
+      "family": "oscillation",
+      "partition": "train",
+      "group": "oscillation_20261024_2",
+      "run": 2
+    },
+    {
+      "name": "oscillation_003_rep1",
+      "base_scenario": "oscillation_003",
+      "parent": "oscillation_003",
+      "family": "oscillation",
+      "partition": "validation",
+      "group": "oscillation_20261024_3",
+      "run": 1
+    },
+    {
+      "name": "oscillation_003_rep2",
+      "base_scenario": "oscillation_003",
+      "parent": "oscillation_003",
+      "family": "oscillation",
+      "partition": "validation",
+      "group": "oscillation_20261024_3",
+      "run": 2
+    },
+    {
+      "name": "oscillation_004_rep1",
+      "base_scenario": "oscillation_004",
+      "parent": "oscillation_004",
+      "family": "oscillation",
+      "partition": "evaluation",
+      "group": "oscillation_20261024_4",
+      "run": 1
+    },
+    {
+      "name": "oscillation_004_rep2",
+      "base_scenario": "oscillation_004",
+      "parent": "oscillation_004",
+      "family": "oscillation",
+      "partition": "evaluation",
+      "group": "oscillation_20261024_4",
+      "run": 2
+    },
+    {
+      "name": "oscillation_005_rep1",
+      "base_scenario": "oscillation_005",
+      "parent": "oscillation_005",
+      "family": "oscillation",
+      "partition": "evaluation",
+      "group": "oscillation_20261024_5",
+      "run": 1
+    },
+    {
+      "name": "oscillation_005_rep2",
+      "base_scenario": "oscillation_005",
+      "parent": "oscillation_005",
+      "family": "oscillation",
+      "partition": "evaluation",
+      "group": "oscillation_20261024_5",
+      "run": 2
+    },
+    {
+      "name": "converging_000_local_rep1",
+      "base_scenario": "converging_000_local",
+      "parent": "converging_000",
+      "family": "local_control",
+      "partition": "train",
+      "group": "independent_20261021_000",
+      "run": 1
+    },
+    {
+      "name": "converging_000_local_rep2",
+      "base_scenario": "converging_000_local",
+      "parent": "converging_000",
+      "family": "local_control",
+      "partition": "train",
+      "group": "independent_20261021_000",
+      "run": 2
+    },
+    {
+      "name": "converging_001_local_rep1",
+      "base_scenario": "converging_001_local",
+      "parent": "converging_001",
+      "family": "local_control",
+      "partition": "train",
+      "group": "independent_20261021_001",
+      "run": 1
+    },
+    {
+      "name": "converging_001_local_rep2",
+      "base_scenario": "converging_001_local",
+      "parent": "converging_001",
+      "family": "local_control",
+      "partition": "train",
+      "group": "independent_20261021_001",
+      "run": 2
+    },
+    {
+      "name": "converging_004_local_rep1",
+      "base_scenario": "converging_004_local",
+      "parent": "converging_004",
+      "family": "local_control",
+      "partition": "validation",
+      "group": "independent_20261021_004",
+      "run": 1
+    },
+    {
+      "name": "converging_004_local_rep2",
+      "base_scenario": "converging_004_local",
+      "parent": "converging_004",
+      "family": "local_control",
+      "partition": "validation",
+      "group": "independent_20261021_004",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_000_local_rep1",
+      "base_scenario": "heldout_converging_000_local",
+      "parent": "heldout_converging_000",
+      "family": "local_control",
+      "partition": "evaluation",
+      "group": "independent_20261023_000",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_000_local_rep2",
+      "base_scenario": "heldout_converging_000_local",
+      "parent": "heldout_converging_000",
+      "family": "local_control",
+      "partition": "evaluation",
+      "group": "independent_20261023_000",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_001_local_rep1",
+      "base_scenario": "heldout_converging_001_local",
+      "parent": "heldout_converging_001",
+      "family": "local_control",
+      "partition": "evaluation",
+      "group": "independent_20261023_001",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_001_local_rep2",
+      "base_scenario": "heldout_converging_001_local",
+      "parent": "heldout_converging_001",
+      "family": "local_control",
+      "partition": "evaluation",
+      "group": "independent_20261023_001",
+      "run": 2
+    },
+    {
+      "name": "converging_000_single_oscillation_rep1",
+      "base_scenario": "converging_000_single_oscillation",
+      "parent": "converging_000",
+      "family": "single_oscillation",
+      "partition": "train",
+      "group": "independent_20261021_000",
+      "run": 1
+    },
+    {
+      "name": "converging_000_single_oscillation_rep2",
+      "base_scenario": "converging_000_single_oscillation",
+      "parent": "converging_000",
+      "family": "single_oscillation",
+      "partition": "train",
+      "group": "independent_20261021_000",
+      "run": 2
+    },
+    {
+      "name": "converging_004_single_oscillation_rep1",
+      "base_scenario": "converging_004_single_oscillation",
+      "parent": "converging_004",
+      "family": "single_oscillation",
+      "partition": "validation",
+      "group": "independent_20261021_004",
+      "run": 1
+    },
+    {
+      "name": "converging_004_single_oscillation_rep2",
+      "base_scenario": "converging_004_single_oscillation",
+      "parent": "converging_004",
+      "family": "single_oscillation",
+      "partition": "validation",
+      "group": "independent_20261021_004",
+      "run": 2
+    },
+    {
+      "name": "heldout_converging_001_single_oscillation_rep1",
+      "base_scenario": "heldout_converging_001_single_oscillation",
+      "parent": "heldout_converging_001",
+      "family": "single_oscillation",
+      "partition": "evaluation",
+      "group": "independent_20261023_001",
+      "run": 1
+    },
+    {
+      "name": "heldout_converging_001_single_oscillation_rep2",
+      "base_scenario": "heldout_converging_001_single_oscillation",
+      "parent": "heldout_converging_001",
+      "family": "single_oscillation",
+      "partition": "evaluation",
+      "group": "independent_20261023_001",
+      "run": 2
+    }
+  ]
+}

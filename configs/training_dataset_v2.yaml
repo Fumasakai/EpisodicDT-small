@@ -1,0 +1,397 @@
+ns3_dir: NS3_5GLENA_modified
+batch_dir: data/processed/training_dataset_next
+controller:
+  type: a3
+  hysteresis_db: 3.0
+  time_to_trigger_ms: 256
+recording:
+  layer: 3
+  kpi_period_ms: 100
+  max_age_ms: 300
+labeling:
+  pingpong_window_s: 2.0
+episodes:
+  length: 100
+  stride: 20
+  max_cells: 3
+execution:
+  seed: 42
+  runs:
+  - 1
+  - 2
+  timeout_s: 240
+environment:
+  sites:
+  - - 0
+    - 0
+    - 10
+  - - 400
+    - 0
+    - 10
+  duration_s: 16.0
+  scenario: UMi
+  frequency_hz: 3500000000
+  bandwidth_hz: 20000000
+  gnb_tx_power_dbm: 30
+  shadowing_enabled: false
+  packet_bytes: 200
+  packets_per_second: 300
+  population:
+    min_ues: 1
+    max_ues: 40
+    counts:
+      car: 18
+      walker: 4
+      static: 2
+  ue_spacing_m: 10.0
+  scenarios:
+  - name: converging_000_original_rep1
+    partition: train
+    group: independent_20261021_000
+    simulation_run: 1
+  - name: converging_000_original_rep2
+    partition: train
+    group: independent_20261021_000
+    simulation_run: 2
+  - name: converging_000_spread_rep1
+    partition: train
+    group: independent_20261021_000
+    simulation_run: 1
+  - name: converging_000_spread_rep2
+    partition: train
+    group: independent_20261021_000
+    simulation_run: 2
+  - name: converging_001_original_rep1
+    partition: train
+    group: independent_20261021_001
+    simulation_run: 1
+  - name: converging_001_original_rep2
+    partition: train
+    group: independent_20261021_001
+    simulation_run: 2
+  - name: converging_001_spread_rep1
+    partition: train
+    group: independent_20261021_001
+    simulation_run: 1
+  - name: converging_001_spread_rep2
+    partition: train
+    group: independent_20261021_001
+    simulation_run: 2
+  - name: dispersed_001_original_rep1
+    partition: train
+    group: independent_20261021_001
+    simulation_run: 1
+  - name: dispersed_001_original_rep2
+    partition: train
+    group: independent_20261021_001
+    simulation_run: 2
+  - name: dispersed_001_spread_rep1
+    partition: train
+    group: independent_20261021_001
+    simulation_run: 1
+  - name: dispersed_001_spread_rep2
+    partition: train
+    group: independent_20261021_001
+    simulation_run: 2
+  - name: converging_002_original_rep1
+    partition: train
+    group: independent_20261021_002
+    simulation_run: 1
+  - name: converging_002_original_rep2
+    partition: train
+    group: independent_20261021_002
+    simulation_run: 2
+  - name: converging_002_spread_rep1
+    partition: train
+    group: independent_20261021_002
+    simulation_run: 1
+  - name: converging_002_spread_rep2
+    partition: train
+    group: independent_20261021_002
+    simulation_run: 2
+  - name: dispersed_002_original_rep1
+    partition: train
+    group: independent_20261021_002
+    simulation_run: 1
+  - name: dispersed_002_original_rep2
+    partition: train
+    group: independent_20261021_002
+    simulation_run: 2
+  - name: dispersed_002_spread_rep1
+    partition: train
+    group: independent_20261021_002
+    simulation_run: 1
+  - name: dispersed_002_spread_rep2
+    partition: train
+    group: independent_20261021_002
+    simulation_run: 2
+  - name: dispersed_003_original_rep1
+    partition: train
+    group: independent_20261021_003
+    simulation_run: 1
+  - name: dispersed_003_original_rep2
+    partition: train
+    group: independent_20261021_003
+    simulation_run: 2
+  - name: dispersed_003_spread_rep1
+    partition: train
+    group: independent_20261021_003
+    simulation_run: 1
+  - name: dispersed_003_spread_rep2
+    partition: train
+    group: independent_20261021_003
+    simulation_run: 2
+  - name: converging_004_original_rep1
+    partition: validation
+    group: independent_20261021_004
+    simulation_run: 1
+  - name: converging_004_original_rep2
+    partition: validation
+    group: independent_20261021_004
+    simulation_run: 2
+  - name: converging_004_spread_rep1
+    partition: validation
+    group: independent_20261021_004
+    simulation_run: 1
+  - name: converging_004_spread_rep2
+    partition: validation
+    group: independent_20261021_004
+    simulation_run: 2
+  - name: dispersed_004_original_rep1
+    partition: validation
+    group: independent_20261021_004
+    simulation_run: 1
+  - name: dispersed_004_original_rep2
+    partition: validation
+    group: independent_20261021_004
+    simulation_run: 2
+  - name: dispersed_004_spread_rep1
+    partition: validation
+    group: independent_20261021_004
+    simulation_run: 1
+  - name: dispersed_004_spread_rep2
+    partition: validation
+    group: independent_20261021_004
+    simulation_run: 2
+  - name: heldout_converging_000_original_rep1
+    partition: evaluation
+    group: independent_20261023_000
+    simulation_run: 1
+  - name: heldout_converging_000_original_rep2
+    partition: evaluation
+    group: independent_20261023_000
+    simulation_run: 2
+  - name: heldout_converging_000_spread_rep1
+    partition: evaluation
+    group: independent_20261023_000
+    simulation_run: 1
+  - name: heldout_converging_000_spread_rep2
+    partition: evaluation
+    group: independent_20261023_000
+    simulation_run: 2
+  - name: heldout_converging_001_original_rep1
+    partition: evaluation
+    group: independent_20261023_001
+    simulation_run: 1
+  - name: heldout_converging_001_original_rep2
+    partition: evaluation
+    group: independent_20261023_001
+    simulation_run: 2
+  - name: heldout_converging_001_spread_rep1
+    partition: evaluation
+    group: independent_20261023_001
+    simulation_run: 1
+  - name: heldout_converging_001_spread_rep2
+    partition: evaluation
+    group: independent_20261023_001
+    simulation_run: 2
+  - name: heldout_converging_002_original_rep1
+    partition: evaluation
+    group: independent_20261023_002
+    simulation_run: 1
+  - name: heldout_converging_002_original_rep2
+    partition: evaluation
+    group: independent_20261023_002
+    simulation_run: 2
+  - name: heldout_converging_002_spread_rep1
+    partition: evaluation
+    group: independent_20261023_002
+    simulation_run: 1
+  - name: heldout_converging_002_spread_rep2
+    partition: evaluation
+    group: independent_20261023_002
+    simulation_run: 2
+  - name: heldout_converging_003_original_rep1
+    partition: evaluation
+    group: independent_20261023_003
+    simulation_run: 1
+  - name: heldout_converging_003_original_rep2
+    partition: evaluation
+    group: independent_20261023_003
+    simulation_run: 2
+  - name: heldout_converging_003_spread_rep1
+    partition: evaluation
+    group: independent_20261023_003
+    simulation_run: 1
+  - name: heldout_converging_003_spread_rep2
+    partition: evaluation
+    group: independent_20261023_003
+    simulation_run: 2
+  - name: heldout_converging_004_original_rep1
+    partition: evaluation
+    group: independent_20261023_004
+    simulation_run: 1
+  - name: heldout_converging_004_original_rep2
+    partition: evaluation
+    group: independent_20261023_004
+    simulation_run: 2
+  - name: heldout_converging_004_spread_rep1
+    partition: evaluation
+    group: independent_20261023_004
+    simulation_run: 1
+  - name: heldout_converging_004_spread_rep2
+    partition: evaluation
+    group: independent_20261023_004
+    simulation_run: 2
+  - name: heldout_converging_005_original_rep1
+    partition: evaluation
+    group: independent_20261023_005
+    simulation_run: 1
+  - name: heldout_converging_005_original_rep2
+    partition: evaluation
+    group: independent_20261023_005
+    simulation_run: 2
+  - name: heldout_converging_005_spread_rep1
+    partition: evaluation
+    group: independent_20261023_005
+    simulation_run: 1
+  - name: heldout_converging_005_spread_rep2
+    partition: evaluation
+    group: independent_20261023_005
+    simulation_run: 2
+  - name: oscillation_000_rep1
+    partition: train
+    group: oscillation_20261024_0
+    simulation_run: 1
+  - name: oscillation_000_rep2
+    partition: train
+    group: oscillation_20261024_0
+    simulation_run: 2
+  - name: oscillation_001_rep1
+    partition: train
+    group: oscillation_20261024_1
+    simulation_run: 1
+  - name: oscillation_001_rep2
+    partition: train
+    group: oscillation_20261024_1
+    simulation_run: 2
+  - name: oscillation_002_rep1
+    partition: train
+    group: oscillation_20261024_2
+    simulation_run: 1
+  - name: oscillation_002_rep2
+    partition: train
+    group: oscillation_20261024_2
+    simulation_run: 2
+  - name: oscillation_003_rep1
+    partition: validation
+    group: oscillation_20261024_3
+    simulation_run: 1
+  - name: oscillation_003_rep2
+    partition: validation
+    group: oscillation_20261024_3
+    simulation_run: 2
+  - name: oscillation_004_rep1
+    partition: evaluation
+    group: oscillation_20261024_4
+    simulation_run: 1
+  - name: oscillation_004_rep2
+    partition: evaluation
+    group: oscillation_20261024_4
+    simulation_run: 2
+  - name: oscillation_005_rep1
+    partition: evaluation
+    group: oscillation_20261024_5
+    simulation_run: 1
+  - name: oscillation_005_rep2
+    partition: evaluation
+    group: oscillation_20261024_5
+    simulation_run: 2
+  - name: converging_000_local_rep1
+    partition: train
+    group: independent_20261021_000
+    simulation_run: 1
+  - name: converging_000_local_rep2
+    partition: train
+    group: independent_20261021_000
+    simulation_run: 2
+  - name: converging_001_local_rep1
+    partition: train
+    group: independent_20261021_001
+    simulation_run: 1
+  - name: converging_001_local_rep2
+    partition: train
+    group: independent_20261021_001
+    simulation_run: 2
+  - name: converging_004_local_rep1
+    partition: validation
+    group: independent_20261021_004
+    simulation_run: 1
+  - name: converging_004_local_rep2
+    partition: validation
+    group: independent_20261021_004
+    simulation_run: 2
+  - name: heldout_converging_000_local_rep1
+    partition: evaluation
+    group: independent_20261023_000
+    simulation_run: 1
+  - name: heldout_converging_000_local_rep2
+    partition: evaluation
+    group: independent_20261023_000
+    simulation_run: 2
+  - name: heldout_converging_001_local_rep1
+    partition: evaluation
+    group: independent_20261023_001
+    simulation_run: 1
+  - name: heldout_converging_001_local_rep2
+    partition: evaluation
+    group: independent_20261023_001
+    simulation_run: 2
+  - name: converging_000_single_oscillation_rep1
+    partition: train
+    group: independent_20261021_000
+    simulation_run: 1
+  - name: converging_000_single_oscillation_rep2
+    partition: train
+    group: independent_20261021_000
+    simulation_run: 2
+  - name: converging_004_single_oscillation_rep1
+    partition: validation
+    group: independent_20261021_004
+    simulation_run: 1
+  - name: converging_004_single_oscillation_rep2
+    partition: validation
+    group: independent_20261021_004
+    simulation_run: 2
+  - name: heldout_converging_001_single_oscillation_rep1
+    partition: evaluation
+    group: independent_20261023_001
+    simulation_run: 1
+  - name: heldout_converging_001_single_oscillation_rep2
+    partition: evaluation
+    group: independent_20261023_001
+    simulation_run: 2
+  route_csv_root: data/scenarios/training_dataset_v2
+  ue_attributes:
+    car:
+      min_moving_speed_mps: 1.0
+      max_speed_mps: 65.0
+      allow_stop: true
+    walker:
+      min_moving_speed_mps: 0.3
+      max_speed_mps: 2.0
+      allow_stop: true
+    static:
+      min_moving_speed_mps: 0.0
+      max_speed_mps: 0.0
+      allow_stop: true

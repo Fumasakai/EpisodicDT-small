@@ -1,19 +1,23 @@
 __pycache__/
 *.pyc
-
 .ipynb_checkpoints/
-
-data/raw/*
-data/processed/*
-
-results/logs/*
-
+.env
 checkpoints/
 *.pt
 *.pth
 
-.env
+# Generated datasets and model/simulator results
+data/processed/*
+results/logs/*
 
+# Keep only current editable source routes under version control
 *.csv
+!data/scenarios/training_dataset_v2/*/*.csv
 
-docs/*
+# LaTeX intermediate files
+*.aux
+*.log
+*.dvi
+*.fdb_latexmk
+*.fls
+*.synctex.gz

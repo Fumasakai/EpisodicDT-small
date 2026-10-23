@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UE経路エディタ</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eef2f6;color:#172b41;font:15px system-ui,sans-serif}header{padding:16px 24px;background:#172b41;color:white;display:flex;justify-content:space-between;align-items:center}h1{margin:0;font-size:22px}main{display:grid;grid-template-columns:300px 1fr;gap:16px;padding:16px}section,aside{background:white;border-radius:10px;padding:16px}label{display:block;margin:10px 0}input,select,button{font:inherit;padding:7px;border:1px solid #b6c4d2;border-radius:5px}input{width:110px}select{max-width:100%}button{cursor:pointer;background:#edf4fa;margin:3px}button.primary{background:#2471a3;color:white}canvas{width:100%;height:490px;border:1px solid #cad6e1;cursor:crosshair;touch-action:none}small{display:block;color:#536778;line-height:1.6}.warning{color:#ab3400;white-space:pre-wrap;max-height:150px;overflow:auto}.status{white-space:pre-wrap;overflow-wrap:anywhere}table{border-collapse:collapse;width:100%;font-size:13px}td,th{padding:4px;text-align:left;border-bottom:1px solid #ddd}td input{width:95px}.scroll{max-height:280px;overflow:auto}.bad{background:#fff0e7}#range{padding:8px;background:#eaf3fa}#saveResult{background:#e8f6ed;padding:12px;display:none}code{white-space:pre-wrap} @media(max-width:900px){main{grid-template-columns:1fr}canvas{height:390px}}
+</style>
+<header><h1>UE移動経路エディタ</h1><button id="save" class="primary">全シナリオをCSV保存</button></header>
+<main><aside>
+<label>シナリオ <select id="scenario"></select></label>
+<label>編集するUE <select id="ue"></select></label>
+<p id="range"></p>
+<small>属性はUE名の car / walker / static で指定します。別の属性を追加するには、下の属性を選んで「UE追加」を押します。台数変更は全シナリオに反映されます。</small>
+<label>追加する属性 <select id="kind"><option>car</option><option>walker</option><option>static</option></select></label>
+<button id="add">UE追加</button><button id="remove">選択UEを削除</button><small id="counts"></small>
+<hr><label>点の追加方法 <select id="mode"><option value="speed">速度から到着時刻を計算</option><option value="time">到着時刻を指定</option></select></label>
+<label>区間速度 [m/s] <input id="speed" type="number" min="0.001" step="0.1" value="10"></label>
+<label>到着時刻 [s] <input id="time" type="number" min="0" step="0.1" value="0"></label>
+<label>停止時間 [s] <input id="stop" type="number" min="0.001" step="0.5" value="1"></label>
+<button id="pause">末尾に停止を追加</button><button id="undo">末尾の点を削除</button><button id="clear">このUEの経路を消去</button>
+<hr><button id="fit">全経路を表示</button><button id="bounds">初期位置範囲を表示</button>
+<small>クリックで経由点を追加。点をドラッグして位置を修正。ホイールで拡大縮小。最初の点は0秒です。staticはクリック位置で静止します。最後の点以降はシミュレーション終了まで停止します。</small>
+</aside><section>
+<p id="info"></p><canvas id="map"></canvas>
+<p id="status" class="status" role="status"></p><div id="warnings" class="warning" role="alert"></div>
+<h3>選択UEの経由点</h3><small>時刻・座標は表でも変更できます。速度範囲外は赤色で表示します。速度警告があっても保存でき、時刻の逆転・欠落は保存できません。</small>
+<div class="scroll"><table><thead><tr><th>点</th><th>時刻 [s]</th><th>X [m]</th><th>Y [m]</th><th>到着区間速度 [m/s]</th></tr></thead><tbody id="points"></tbody></table></div>
+<div id="saveResult" class="status"></div>
+</section></main>
+<script>
+'use strict';
+let state, tracks, dirty=false, drag=null, view, activeScenario, activeUE;
+const $=id=>document.getElementById(id), canvas=$('map'), ctx=canvas.getContext('2d');
+const kinds=['car','walker','static'], color={car:'#2579b5',walker:'#19855c',static:'#8c58b2'};
+const keyKind=k=>k.split(':')[0];
+const current=()=>tracks[activeScenario][activeUE];
+const profile=()=>state.profiles[keyKind(activeUE)];
+const mark=()=>{dirty=true;};
+function message(s){$('status').textContent=s;}
+function counts(){const result={car:0,walker:0,static:0};Object.keys(tracks[activeScenario]).forEach(k=>result[keyKind(k)]++);return result;}
+function selectUEs(preferred){const keys=Object.keys(tracks[activeScenario]);$('ue').replaceChildren(...keys.map(k=>new Option(k.replace(':',' UE '),k)));activeUE=keys.includes(preferred)?preferred:keys[0];$('ue').value=activeUE;const p=profile();$('speed').value=keyKind(activeUE)==='static'?0:Math.max(p.min_moving_speed_mps,Math.min(p.max_speed_mps,keyKind(activeUE)==='car'?10:1));render();}
+function speed(a,b){return Math.hypot(b[1]-a[1],b[2]-a[2])/(b[0]-a[0]);}
+function badSpeed(v,p){return !Number.isFinite(v)||(v<=1e-8?!p.allow_stop:v<p.min_moving_speed_mps-1e-8||v>p.max_speed_mps+1e-8);}
+function issues(points,p){const result=[];if(!points.length)return ['経路が未設定です。'];points.forEach((a,i)=>{if(!a.every(Number.isFinite)||a[0]<0||a[0]>state.duration||(i===0&&a[0]!==0)||(i>0&&a[0]<=points[i-1][0]))result.push(`点${i}: 時刻・座標が不正です。`);if(i&&badSpeed(speed(points[i-1],a),p))result.push(`区間${i}: 速度 ${speed(points[i-1],a).toFixed(3)} m/s が許容範囲外です。`);});return result;}
+function render(){
+ const p=profile(), a=current(), c=counts();
+ $('range').textContent=`${keyKind(activeUE)}: 移動時 ${p.min_moving_speed_mps}〜${p.max_speed_mps} m/s / 停止${p.allow_stop?'可':'不可'}`;
+ $('counts').textContent=`car ${c.car}・walker ${c.walker}・static ${c.static}（合計 ${Object.values(c).reduce((a,b)=>a+b,0)} / 上限 ${state.population.max_ues}）`;
+ $('info').textContent=`${activeScenario} / ${state.scenarios.find(s=>s.name===activeScenario).partition} / 終了 ${state.duration} 秒　▲ 基地局（固定）　破線枠：初期位置範囲`;
+ const warn=issues(a,p);if(a.length){const b=state.bounds;if(a[0][1]<b[0][0]||a[0][1]>b[0][1]||a[0][2]<b[1][0]||a[0][2]>b[1][1])warn.push('初期位置が学習モデルの設定範囲外です。');}
+ $('warnings').textContent=warn.join('\n');
+ $('points').replaceChildren();a.forEach((point,i)=>{const row=document.createElement('tr');const label=document.createElement('td');label.textContent=i;row.append(label);point.forEach((v,j)=>{const cell=document.createElement('td'),input=document.createElement('input');input.type='number';input.step='any';input.value=v;input.setAttribute('aria-label',`点${i} ${['時刻','X','Y'][j]}`);input.onchange=()=>{if(input.value.trim()==='')return;const n=Number(input.value);if(!Number.isFinite(n))return;point[j]=n;mark();render();};cell.append(input);row.append(cell);});const v=i?speed(a[i-1],point):0;const cell=document.createElement('td');cell.textContent=i?v.toFixed(3):'開始';if(i&&badSpeed(v,p))row.className='bad';row.append(cell);$('points').append(row);});draw();
+}
+function dimensions(){return [canvas.clientWidth,canvas.clientHeight];}
+function toScreen(x,y){const [w,h]=dimensions();return [(x-view[0])/(view[1]-view[0])*w,h-(y-view[2])/(view[3]-view[2])*h];}
+function toWorld(x,y){const [w,h]=dimensions();return [view[0]+x/w*(view[1]-view[0]),view[2]+(1-y/h)*(view[3]-view[2])];}
+function frame(xmin,xmax,ymin,ymax){const [w,h]=dimensions();let cx=(xmin+xmax)/2,cy=(ymin+ymax)/2,dx=Math.max(xmax-xmin,20)*1.1,dy=Math.max(ymax-ymin,20)*1.1;dx=Math.max(dx,dy*w/h);dy=dx*h/w;view=[cx-dx/2,cx+dx/2,cy-dy/2,cy+dy/2];draw();}
+function fit(){let pts=Object.values(tracks[activeScenario]).flat().map(a=>a.slice(1));pts.push(...state.sites.map(s=>s.slice(0,2)));frame(Math.min(...pts.map(p=>p[0])),Math.max(...pts.map(p=>p[0])),Math.min(...pts.map(p=>p[1])),Math.max(...pts.map(p=>p[1])));}
+function draw(){if(!view)return;const [w,h]=dimensions(),dpr=window.devicePixelRatio||1;canvas.width=w*dpr;canvas.height=h*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);ctx.font='12px sans-serif';
+ const step=10**Math.floor(Math.log10((view[1]-view[0])/6));ctx.strokeStyle='#e1e8ef';ctx.fillStyle='#536778';
+ for(let x=Math.ceil(view[0]/step)*step;x<=view[1];x+=step){let [sx]=toScreen(x,0);ctx.beginPath();ctx.moveTo(sx,0);ctx.lineTo(sx,h);ctx.stroke();ctx.fillText(`${Math.round(x*100)/100}`,sx+2,h-5);}
+ for(let y=Math.ceil(view[2]/step)*step;y<=view[3];y+=step){let [,sy]=toScreen(0,y);ctx.beginPath();ctx.moveTo(0,sy);ctx.lineTo(w,sy);ctx.stroke();ctx.fillText(`${Math.round(y*100)/100}`,3,sy-3);}
+ const b=state.bounds,p0=toScreen(b[0][0],b[1][1]),p1=toScreen(b[0][1],b[1][0]);ctx.setLineDash([5,5]);ctx.strokeStyle='#9aaab9';ctx.strokeRect(...p0,p1[0]-p0[0],p1[1]-p0[1]);ctx.setLineDash([]);
+ for(const [key,a] of Object.entries(tracks[activeScenario])){const selected=key===activeUE,p=state.profiles[keyKind(key)];ctx.globalAlpha=selected?1:.3;ctx.lineWidth=selected?3:1.5;for(let i=1;i<a.length;i++){ctx.strokeStyle=badSpeed(speed(a[i-1],a[i]),p)?'#d44918':color[keyKind(key)];ctx.beginPath();ctx.moveTo(...toScreen(...a[i-1].slice(1)));ctx.lineTo(...toScreen(...a[i].slice(1)));ctx.stroke();}a.forEach((point,i)=>{const [x,y]=toScreen(...point.slice(1));ctx.fillStyle=color[keyKind(key)];ctx.beginPath();ctx.arc(x,y,selected?5:3,0,Math.PI*2);ctx.fill();if(selected)ctx.fillText(`${i} (${point[0].toFixed(1)}s)`,x+7,y-8);});}
+ ctx.globalAlpha=1;state.sites.forEach((s,i)=>{const [x,y]=toScreen(s[0],s[1]);ctx.fillStyle='#142a40';ctx.beginPath();ctx.moveTo(x,y-10);ctx.lineTo(x-9,y+7);ctx.lineTo(x+9,y+7);ctx.closePath();ctx.fill();ctx.fillText(`gNB ${i} (${s[0]}, ${s[1]})`,x+12,y+6);});
+}
+function pos(e){const r=canvas.getBoundingClientRect();return [e.clientX-r.left,e.clientY-r.top];}
+canvas.onpointerdown=e=>{if(e.button!==0)return;const pixel=pos(e),a=current();let hit=-1;for(let i=a.length-1;i>=0;i--){const p=toScreen(...a[i].slice(1));if(Math.hypot(p[0]-pixel[0],p[1]-pixel[1])<9){hit=i;break;}}if(hit>=0){drag={i:hit};canvas.setPointerCapture(e.pointerId);return;}const xy=toWorld(...pixel).map(v=>Math.round(v*1000)/1000);if(keyKind(activeUE)==='static'){tracks[activeScenario][activeUE]=[[0,...xy]];}else{let t=0;if(a.length){const last=a[a.length-1];if($('mode').value==='speed'){const v=Number($('speed').value);if(!Number.isFinite(v)||v<=0){message('移動速度には正の数を指定してください。');return;}t=last[0]+Math.hypot(xy[0]-last[1],xy[1]-last[2])/v;}else t=Number($('time').value);if(!Number.isFinite(t)||t<=last[0]||t>state.duration){message('到着時刻は直前の点より後、終了時刻以下にしてください。');return;}}a.push([t,...xy]);}mark();message('点を追加しました。');render();};
+canvas.onpointermove=e=>{if(!drag)return;const xy=toWorld(...pos(e)).map(v=>Math.round(v*1000)/1000),a=current();if(keyKind(activeUE)==='static')a.forEach(p=>{p[1]=xy[0];p[2]=xy[1];});else{a[drag.i][1]=xy[0];a[drag.i][2]=xy[1];}mark();render();};
+canvas.onpointerup=()=>{drag=null;};canvas.onpointercancel=()=>{drag=null;};
+canvas.addEventListener('wheel',e=>{e.preventDefault();const anchor=toWorld(...pos(e)),factor=e.deltaY>0?1.15:1/1.15;if((view[1]-view[0])*factor<1||(view[1]-view[0])*factor>1e7)return;view=[anchor[0]+(view[0]-anchor[0])*factor,anchor[0]+(view[1]-anchor[0])*factor,anchor[1]+(view[2]-anchor[1])*factor,anchor[1]+(view[3]-anchor[1])*factor];draw();},{passive:false});
+$('scenario').onchange=()=>{activeScenario=$('scenario').value;selectUEs(activeUE);fit();};$('ue').onchange=()=>{selectUEs($('ue').value);};
+$('clear').onclick=()=>{if(!confirm('選択UEの経路を消去しますか？'))return;tracks[activeScenario][activeUE]=[];mark();render();};
+$('undo').onclick=()=>{current().pop();mark();render();};
+$('pause').onclick=()=>{const a=current(),dt=Number($('stop').value);if(!a.length||!Number.isFinite(dt)||dt<=0||a[a.length-1][0]+dt>state.duration){message('先に点を置き、終了時刻を超えない正の停止時間を指定してください。');return;}const last=a[a.length-1];a.push([last[0]+dt,...last.slice(1)]);mark();render();};
+$('add').onclick=()=>{const c=counts();if(Object.values(c).reduce((a,b)=>a+b,0)>=state.population.max_ues){message('UE台数が上限です。');return;}const k=$('kind').value,key=`${k}:${c[k]+1}`;for(const routes of Object.values(tracks))routes[key]=[];mark();selectUEs(key);message('全シナリオにUEを追加しました。各シナリオで経路を設定してください。');};
+$('remove').onclick=()=>{const c=counts();if(Object.values(c).reduce((a,b)=>a+b,0)<=state.population.min_ues){message('UE台数が下限です。');return;}if(!confirm('このUEを全シナリオから削除しますか？'))return;const kind=keyKind(activeUE),id=Number(activeUE.split(':')[1]);for(const routes of Object.values(tracks)){delete routes[activeUE];for(let n=id+1;n<=c[kind];n++){routes[`${kind}:${n-1}`]=routes[`${kind}:${n}`];delete routes[`${kind}:${n}`];}}mark();selectUEs();};
+$('fit').onclick=fit;$('bounds').onclick=()=>frame(...state.bounds[0],...state.bounds[1]);window.addEventListener('resize',()=>{if(state)draw();});
+$('save').onclick=async()=>{const complete=JSON.parse(JSON.stringify(tracks)),warnings=[];for(const [name,routes] of Object.entries(complete)){for(const [key,a] of Object.entries(routes)){const messages=issues(a,state.profiles[keyKind(key)]);if(!a.length||a.some((p,i)=>!p.every(Number.isFinite)||p[0]<0||p[0]>state.duration||(i===0&&p[0]!==0)||(i>0&&p[0]<=a[i-1][0]))){message(`${name} / ${key}: 経路・時刻を修正してください。`);return;}warnings.push(...messages.map(m=>`${name} / ${key}: ${m}`));const last=a[a.length-1];if(last[0]<state.duration)a.push([state.duration,...last.slice(1)]);}}
+ if(warnings.length&&!confirm(`速度警告が${warnings.length}件あります。警告付きで保存しますか？\n${warnings.slice(0,6).join('\n')}`))return;
+ $('save').disabled=true;try{const response=await fetch('/api/save',{method:'POST',headers:{'Content-Type':'application/json','X-Editor-Token':'__TOKEN__'},body:JSON.stringify({counts:counts(),tracks:complete})});const result=await response.json();if(!response.ok)throw new Error(result.error);dirty=false;$('saveResult').style.display='block';$('saveResult').textContent=`保存しました。CSVフォルダは設定YAMLの environment.route_csv_root に記録されています。\n設定: ${result.config}\nシミュレーション・エピソード変換:\npython -m src.data.generate_handover_batch --config ${JSON.stringify(result.config)}\n学習:\nOMP_NUM_THREADS=1 python -m src.train.train_mobility --config ${JSON.stringify(result.batch_dir+'/training.yaml')}\n速度警告: ${result.warnings.length}件`;message('全シナリオを新しい保存版として保存しました。');}catch(error){message(`保存エラー: ${error.message}`);}finally{$('save').disabled=false;}};
+window.addEventListener('beforeunload',e=>{if(dirty){e.preventDefault();e.returnValue='';}});
+fetch('/api/state').then(r=>r.json()).then(s=>{state=s;tracks=JSON.parse(JSON.stringify(s.tracks));activeScenario=s.scenarios[0].name;$('scenario').replaceChildren(...s.scenarios.map(x=>new Option(`${x.name} (${x.partition})`,x.name)));selectUEs();fit();message('既存経路を読み込みました。描き直す場合は「このUEの経路を消去」を押してください。');}).catch(e=>message(`読み込みエラー: ${e.message}`));
+</script></html>

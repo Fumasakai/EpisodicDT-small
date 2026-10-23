@@ -1,0 +1,5 @@
+# Overleaf: select "LaTeX". Use standard latex (pdfTeX in DVI mode) + dvipdfmx.
+$pdf_mode = 3;
+$latex = 'latex -interaction=nonstopmode -halt-on-error %O %S';
+$dvipdf = 'dvipdfmx %O -o %D %S';
+$max_repeat = 3;
